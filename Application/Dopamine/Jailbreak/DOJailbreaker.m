@@ -1,8 +1,8 @@
 //
-//  Jailbreaker.m
-//  Dopamine
+//Jailbreaker.m
+//Dopamine
 //
-//  Created by Lars Fröder on 10.01.24.
+//Created by Lars Fröder on 10.01.24.
 //
 
 #import "DOJailbreaker.h"
@@ -46,19 +46,19 @@ CFDictionaryRef _CFPreferencesCopyMultipleWithContainer(CFArrayRef keysToFetch, 
 NSString *const JBErrorDomain = @"JBErrorDomain";
 typedef NS_ENUM(NSInteger, JBErrorCode) {
 	JBErrorCodeFailedToFindKernel			= -1,
-	JBErrorCodeFailedKernelPatchfinding	  = -2,
-	JBErrorCodeFailedLoadingExploit		  = -3,
+	JBErrorCodeFailedKernelPatchfinding	= -2,
+	JBErrorCodeFailedLoadingExploit		= -3,
 	JBErrorCodeFailedExploitation			= -4,
-	JBErrorCodeFailedBuildingPhysRW		  = -5,
+	JBErrorCodeFailedBuildingPhysRW		= -5,
 	JBErrorCodeFailedCleanup				 = -6,
 	JBErrorCodeFailedGetRoot				 = -7,
-	JBErrorCodeFailedUnsandbox			   = -8,
+	JBErrorCodeFailedUnsandbox				= -8,
 	JBErrorCodeFailedPlatformize			 = -9,
-	JBErrorCodeFailedBasebinTrustcache	   = -10,
+	JBErrorCodeFailedBasebinTrustcache		= -10,
 	JBErrorCodeFailedLaunchdInjection		= -11,
-	JBErrorCodeFailedInitProtection		  = -12,
+	JBErrorCodeFailedInitProtection		= -12,
 	JBErrorCodeFailedInitFakeLib			 = -13,
-	JBErrorCodeFailedDuplicateApps		   = -14,
+	JBErrorCodeFailedDuplicateApps			= -14,
 };
 
 @implementation DOJailbreaker
@@ -241,13 +241,13 @@ sets[idx] = NULL;
 	// verify root
 	if (getuid() != 0)
 		return [NSError errorWithDomain:JBErrorDomain
-								   code:JBErrorCodeFailedGetRoot
-							   userInfo:@{NSLocalizedDescriptionKey:
+									code:JBErrorCodeFailedGetRoot
+								userInfo:@{NSLocalizedDescriptionKey:
 			[NSString stringWithFormat:@"uid still %d", getuid()]}];
 	if (getgid() != 0)
 		return [NSError errorWithDomain:JBErrorDomain
-								   code:JBErrorCodeFailedGetRoot
-							   userInfo:@{NSLocalizedDescriptionKey:
+									code:JBErrorCodeFailedGetRoot
+								userInfo:@{NSLocalizedDescriptionKey:
 			[NSString stringWithFormat:@"gid still %d", getgid()]}];
 	// Unsandbox
 	uint64_t label = kread_ptr(ucred + koffsetof(ucred, label));
@@ -256,8 +256,8 @@ sets[idx] = NULL;
 	[[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"/var" error:&error];
 	if (error)
 		return [NSError errorWithDomain:JBErrorDomain
-								   code:JBErrorCodeFailedUnsandbox
-							   userInfo:@{NSLocalizedDescriptionKey:
+									code:JBErrorCodeFailedUnsandbox
+								userInfo:@{NSLocalizedDescriptionKey:
 			[NSString stringWithFormat:@"/var not accessible (%s)",
 				error.description.UTF8String]}];
 	setenv("HOME", "/var/root", true);
@@ -269,8 +269,8 @@ sets[idx] = NULL;
 	csops(getpid(), CS_OPS_STATUS, &csflags, sizeof(csflags));
 	if (!(csflags & CS_PLATFORM_BINARY))
 		return [NSError errorWithDomain:JBErrorDomain
-								   code:JBErrorCodeFailedPlatformize
-							   userInfo:@{NSLocalizedDescriptionKey:@"CS_PLATFORM_BINARY failed"}];
+									code:JBErrorCodeFailedPlatformize
+								userInfo:@{NSLocalizedDescriptionKey:@"CS_PLATFORM_BINARY failed"}];
 	return nil;
 }
 
@@ -508,10 +508,10 @@ void *boomerang_server(struct boomerang_info *info)
 	/****************** roothide specific ****************/
 
 	BOOL removeJailbreakEnabled=[[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"removeJailbreakEnabled" fallback:NO];
-	BOOL tweaksEnabled          =[[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"tweakInjectionEnabled" fallback:YES];
-	BOOL idownloadEnabled       =[[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"idownloadEnabled" fallback:NO];
-	BOOL appJITEnabled          =[[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"appJITEnabled" fallback:YES];
-	NSNumber *jetsamMultiplier  =[[DOPreferenceManager sharedManager] preferenceValueForKey:@"jetsamMultiplier"];
+	BOOL tweaksEnabled	=[[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"tweakInjectionEnabled" fallback:YES];
+	BOOL idownloadEnabled	=[[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"idownloadEnabled" fallback:NO];
+	BOOL appJITEnabled	=[[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"appJITEnabled" fallback:YES];
+	NSNumber *jetsamMultiplier=[[DOPreferenceManager sharedManager] preferenceValueForKey:@"jetsamMultiplier"];
 
 	struct utsname systemInfo;
 	uname(&systemInfo);
@@ -526,25 +526,25 @@ void *boomerang_server(struct boomerang_info *info)
 	];
 	[[DOUIManager sharedInstance] sendLog:startLog debug:YES];
 
-	*errOut=[self gatherSystemInformation];       if(*errOut) return;
-	*errOut=[self doExploitation];                if(*errOut) return;
+	*errOut=[self gatherSystemInformation];	if(*errOut) return;
+	*errOut=[self doExploitation];	if(*errOut) return;
 
 	gSystemInfo.jailbreakSettings.markAppsAsDebugged=appJITEnabled;
-	gSystemInfo.jailbreakSettings.jetsamMultiplier   =jetsamMultiplier? (jetsamMultiplier.doubleValue/2) : 0;
+	gSystemInfo.jailbreakSettings.jetsamMultiplier	=jetsamMultiplier? (jetsamMultiplier.doubleValue/2) : 0;
 
 	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Building Phys R/W Primitive") debug:NO];
-	*errOut=[self buildPhysRWPrimitive];          if(*errOut) return;
+	*errOut=[self buildPhysRWPrimitive];	if(*errOut) return;
 	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Cleaning Up Exploits") debug:NO];
-	*errOut=[self cleanUpExploits];               if(*errOut) return;
+	*errOut=[self cleanUpExploits];		if(*errOut) return;
 
 	// reset removeJailbreak before privilege escalation
 	if(removeJailbreakEnabled)
 		[[DOPreferenceManager sharedManager] setPreferenceValue:@NO forKey:@"removeJailbreakEnabled"];
 
 	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Elevating Privileges") debug:NO];
-	*errOut=[self elevatePrivileges];             if(*errOut) return;
-	*errOut=[self showNonDefaultSystemApps];       if(*errOut) return;
-	*errOut=[self ensureDevModeEnabled];           if(*errOut) return;
+	*errOut=[self elevatePrivileges];		if(*errOut) return;
+	*errOut=[self showNonDefaultSystemApps];	if(*errOut) return;
+	*errOut=[self ensureDevModeEnabled];	 if(*errOut) return;
 
 	// ensure jailbreak root exists
 	*errOut=[[DOEnvironmentManager sharedManager] ensureJailbreakRootExists]; if(*errOut) return;
@@ -556,7 +556,7 @@ void *boomerang_server(struct boomerang_info *info)
 		return;
 	}
 
-	*errOut=[[DOEnvironmentManager sharedManager] prepareBootstrap];       if(*errOut) return;
+	*errOut=[[DOEnvironmentManager sharedManager] prepareBootstrap];	if(*errOut) return;
 	setenv("PATH","/sbin:/bin:/usr/sbin:/usr/bin:/rootfs/sbin:/rootfs/bin:/rootfs/usr/sbin:/rootfs/usr/bin",1);
 	setenv("TERM","xterm-256color",1);
 
@@ -566,14 +566,14 @@ void *boomerang_server(struct boomerang_info *info)
 	}
 
 	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Loading BaseBin TrustCache") debug:NO];
-	*errOut=[self loadBasebinTrustcache];           if(*errOut) return;
+	*errOut=[self loadBasebinTrustcache];	 if(*errOut) return;
 
 	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Initializing Environment") debug:NO];
-	*errOut=[self injectLaunchdHook];               if(*errOut) return;
+	*errOut=[self injectLaunchdHook];		if(*errOut) return;
 
 	/*************************** roothide specific *******************/
 	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"RootHide Stage") debug:NO];
-	int ret=basebin_generate(false);                if(ret){
+	int ret=basebin_generate(false);	if(ret){
 		*errOut=[NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib
 			userInfo:@{NSLocalizedDescriptionKey:
 				[NSString stringWithFormat:@"Creating fakelib failed with error:%d",ret]}];
@@ -593,7 +593,7 @@ void *boomerang_server(struct boomerang_info *info)
 
 	exec_cmd_trusted(JBROOT_PATH("/usr/bin/killall"),"-9","iconservicesagent",NULL);
 
-	*errOut=[self finalizeBootstrapIfNeeded];     if(*errOut) return;
+	*errOut=[self finalizeBootstrapIfNeeded];	if(*errOut) return;
 	[[DOEnvironmentManager sharedManager] setIDownloadEnabled:idownloadEnabled needsUnsandbox:NO];
 
 	printf("Done!\n");
