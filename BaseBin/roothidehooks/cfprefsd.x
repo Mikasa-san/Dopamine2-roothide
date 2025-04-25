@@ -1,7 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <substrate.h>
 #include <roothide.h>
-#import "common.h"
+#include "common.h"
 
 #define MAX_BUFFER_SIZE	1024
 
