@@ -22,7 +22,7 @@
 	return sharedInstance;
 }
 
-- (instancetype)init
+- (id)init
 {
 	if (self = [super init]) {
 		_preferenceManager = [DOPreferenceManager sharedManager];
