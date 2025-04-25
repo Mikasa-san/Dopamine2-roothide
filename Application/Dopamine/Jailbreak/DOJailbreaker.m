@@ -500,145 +500,102 @@ void *boomerang_server(struct boomerang_info *info)
 - (void)runWithError:(NSError **)errOut didRemoveJailbreak:(BOOL*)didRemove showLogs:(BOOL *)showLogs
 {
 
-/****************** roothide specific ****************/
-	dispatch_async(dispatch_get_main_queue(), ^{
+	/****************** roothide specific ****************/
+	dispatch_async(dispatch_get_main_queue(),^{
 		[[UIApplication sharedApplication] setIdleTimerDisabled:YES];
 	});
-	
 	exec_set_patch(false);
-/****************** roothide specific ****************/
+	/****************** roothide specific ****************/
 
+	BOOL removeJailbreakEnabled=[[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"removeJailbreakEnabled" fallback:NO];
+	BOOL tweaksEnabled          =[[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"tweakInjectionEnabled" fallback:YES];
+	BOOL idownloadEnabled       =[[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"idownloadEnabled" fallback:NO];
+	BOOL appJITEnabled          =[[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"appJITEnabled" fallback:YES];
+	NSNumber *jetsamMultiplier  =[[DOPreferenceManager sharedManager] preferenceValueForKey:@"jetsamMultiplier"];
 
-	BOOL removeJailbreakEnabled = [[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"removeJailbreakEnabled" fallback:NO];
-	BOOL tweaksEnabled = [[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"tweakInjectionEnabled" fallback:YES];
-	BOOL idownloadEnabled = [[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"idownloadEnabled" fallback:NO];
-	BOOL appJITEnabled = [[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"appJITEnabled" fallback:YES];
-	NSNumber *jetsamMultiplierOption = [[DOPreferenceManager sharedManager] preferenceValueForKey:@"jetsamMultiplier"];
-	
 	struct utsname systemInfo;
 	uname(&systemInfo);
-	NSString *startLog = [NSString stringWithFormat:@"Starting Jailbreak (Model: %s, %@, Configuration: {removeJailbreak=%d, tweakInjection=%d, idownload=%d, appJIT=%d})", systemInfo.machine, NSProcessInfo.processInfo.operatingSystemVersionString, removeJailbreakEnabled, tweaksEnabled, idownloadEnabled, appJITEnabled];
+	NSString *startLog=[NSString stringWithFormat:
+		@"Starting Jailbreak (Model:%s,%@,Configuration:{removeJailbreak=%d,tweakInjection=%d,idownload=%d,appJIT=%d})",
+		systemInfo.machine,
+		NSProcessInfo.processInfo.operatingSystemVersionString,
+		removeJailbreakEnabled,
+		tweaksEnabled,
+		idownloadEnabled,
+		appJITEnabled
+	];
 	[[DOUIManager sharedInstance] sendLog:startLog debug:YES];
-	
-	*errOut = [self gatherSystemInformation];
-	if (*errOut) return;
-	*errOut = [self doExploitation];
-	if (*errOut) return;
-	
-	gSystemInfo.jailbreakSettings.markAppsAsDebugged = appJITEnabled;
-	gSystemInfo.jailbreakSettings.jetsamMultiplier = jetsamMultiplierOption ? (jetsamMultiplierOption.doubleValue / 2) : 0;
-	
+
+	*errOut=[self gatherSystemInformation];       if(*errOut) return;
+	*errOut=[self doExploitation];                if(*errOut) return;
+
+	gSystemInfo.jailbreakSettings.markAppsAsDebugged=appJITEnabled;
+	gSystemInfo.jailbreakSettings.jetsamMultiplier   =jetsamMultiplier? (jetsamMultiplier.doubleValue/2) : 0;
+
 	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Building Phys R/W Primitive") debug:NO];
-	*errOut = [self buildPhysRWPrimitive];
-	if (*errOut) return;
+	*errOut=[self buildPhysRWPrimitive];          if(*errOut) return;
 	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Cleaning Up Exploits") debug:NO];
-	*errOut = [self cleanUpExploits];
-	if (*errOut) return;
-	
-	// We will not be able to reset this after elevating privileges, so do it now
-	if (removeJailbreakEnabled) [[DOPreferenceManager sharedManager] setPreferenceValue:@NO forKey:@"removeJailbreakEnabled"];
+	*errOut=[self cleanUpExploits];               if(*errOut) return;
+
+	// reset removeJailbreak before privilege escalation
+	if(removeJailbreakEnabled)
+		[[DOPreferenceManager sharedManager] setPreferenceValue:@NO forKey:@"removeJailbreakEnabled"];
 
 	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Elevating Privileges") debug:NO];
-	*errOut = [self elevatePrivileges];
-	if (*errOut) return;
-	*errOut = [self showNonDefaultSystemApps];
-	if (*errOut) return;
-	*errOut = [self ensureDevModeEnabled];
-	if (*errOut) return;
+	*errOut=[self elevatePrivileges];             if(*errOut) return;
+	*errOut=[self showNonDefaultSystemApps];       if(*errOut) return;
+	*errOut=[self ensureDevModeEnabled];           if(*errOut) return;
 
-	// Now that we are unsandboxed, populate the jailbreak root path
-	*errOut = [[DOEnvironmentManager sharedManager] ensureJailbreakRootExists];
-	if (*errOut) return;
-	
-	if (removeJailbreakEnabled) {
+	// ensure jailbreak root exists
+	*errOut=[[DOEnvironmentManager sharedManager] ensureJailbreakRootExists]; if(*errOut) return;
+
+	if(removeJailbreakEnabled){
 		[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Removing Jailbreak") debug:NO];
-		*errOut = [[DOEnvironmentManager sharedManager] deleteBootstrap];
-		*didRemove = YES;
+		*errOut=[[DOEnvironmentManager sharedManager] deleteBootstrap];
+		*didRemove=YES;
 		return;
 	}
-	
-	*errOut = [[DOEnvironmentManager sharedManager] prepareBootstrap];
-	if (*errOut) return;
-	setenv("PATH", "/sbin:/bin:/usr/sbin:/usr/bin:/rootfs/sbin:/rootfs/bin:/rootfs/usr/sbin:/rootfs/usr/bin", 1);
-	setenv("TERM", "xterm-256color", 1);
-	
-	if (!tweaksEnabled) {
-		printf("Creating safe mode marker file since tweaks were disabled in settings\n");
+
+	*errOut=[[DOEnvironmentManager sharedManager] prepareBootstrap];       if(*errOut) return;
+	setenv("PATH","/sbin:/bin:/usr/sbin:/usr/bin:/rootfs/sbin:/rootfs/bin:/rootfs/usr/sbin:/rootfs/usr/bin",1);
+	setenv("TERM","xterm-256color",1);
+
+	if(!tweaksEnabled){
+		printf("Safe mode: tweaks disabled in settings\n");
 		[[NSData data] writeToFile:JBROOT_PATH(@"/basebin/.safe_mode") atomically:YES];
 	}
-	
+
 	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Loading BaseBin TrustCache") debug:NO];
-	*errOut = [self loadBasebinTrustcache];
-	if (*errOut) return;
-	
+	*errOut=[self loadBasebinTrustcache];           if(*errOut) return;
+
 	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Initializing Environment") debug:NO];
-	*errOut = [self injectLaunchdHook];
-	if (*errOut) return;
-	
-/*
-	// Now that we can, protect important system files by bind mounting on top of them
-	// This will be always be done during the userspace reboot
-	// We also do it now though in case there is a failure between the now step and the userspace reboot
-	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Initializing Protection") debug:NO];
-	*errOut = [self applyProtection];
-	if (*errOut) return;
-	
-	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Applying Bind Mount") debug:NO];
-	*errOut = [self createFakeLib];
-	if (*errOut) return;
-*/
+	*errOut=[self injectLaunchdHook];               if(*errOut) return;
 
-/*************************** roothide specific *******************/
-[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"RootHide Stage") debug:NO];
-
-int ret = basebin_generate(false);
-if (ret != 0) {
-	*errOut = [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Creating fakelib failed with error: %d", ret]}];
-	return;
-}
-
-ret = ensure_dyld_trustcache(JBROOT_PATH("/basebin/.fakelib/dyld"));
-if (ret != 0) {
-	*errOut = [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to upload dyld trustcache: %d", ret]}];
-	return;
-}
-
-exec_set_patch(true); /* launchdhook injected and dyld patched, 
-now we can enable dyld patching for new process */
-
-// don't use dyld-in-cache due to dyldhooks
-setenv("DYLD_IN_CACHE", "0", 1);
-// don't load tweak during jailbreaking
-setenv("DISABLE_TWEAKS", "1", 1);
-// using the stock path during jailbreaking
-setenv("DYLD_INSERT_LIBRARIES", JBROOT_PATH("/basebin/systemhook.dylib"), 1);
-
-/******************************** roothide specific *************************/
-
-	
-	// Unsandbox iconservicesagent so that app icons can work
-	exec_cmd_trusted(JBROOT_PATH("/usr/bin/killall"), "-9", "iconservicesagent", NULL);
-	
-	*errOut = [self finalizeBootstrapIfNeeded];
-	if (*errOut) return;
-	
-	[[DOEnvironmentManager sharedManager] setIDownloadEnabled:idownloadEnabled needsUnsandbox:NO];
-	
-/*
-	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Checking For Duplicate Apps") debug:NO];
-	*errOut = [self ensureNoDuplicateApps];
-	if (*errOut) {
-		*showLogs = NO;
+	/*************************** roothide specific *******************/
+	[[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"RootHide Stage") debug:NO];
+	int ret=basebin_generate(false);                if(ret){
+		*errOut=[NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib
+			userInfo:@{NSLocalizedDescriptionKey:
+				[NSString stringWithFormat:@"Creating fakelib failed with error:%d",ret]}];
 		return;
 	}
-*/
-	
-	//printf("Starting launch daemons...\n");
-	//exec_cmd_trusted(JBROOT_PATH("/usr/bin/launchctl"), "bootstrap", "system", JBROOT_PATH("/Library/LaunchDaemons"), NULL);
-	//exec_cmd_trusted(JBROOT_PATH("/usr/bin/launchctl"), "bootstrap", "system", JBROOT_PATH("/basebin/LaunchDaemons"), NULL);
-	// Note: This causes the app to freeze in some instances due to launchd only having physrw_pte, we might want to only do it when neccessary
-	// It's only neccessary when we don't immediately userspace reboot
-	
+	ret=ensure_dyld_trustcache(JBROOT_PATH("/basebin/.fakelib/dyld")); if(ret){
+		*errOut=[NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib
+			userInfo:@{NSLocalizedDescriptionKey:
+				[NSString stringWithFormat:@"Failed to upload dyld trustcache:%d",ret]}];
+		return;
+	}
+	exec_set_patch(true); /* launchdhook injected and dyld patched */
+	setenv("DYLD_IN_CACHE","0",1);
+	setenv("DISABLE_TWEAKS","1",1);
+	setenv("DYLD_INSERT_LIBRARIES",JBROOT_PATH("/basebin/systemhook.dylib"),1);
+	/******************************** roothide specific ***************************/
+
+	exec_cmd_trusted(JBROOT_PATH("/usr/bin/killall"),"-9","iconservicesagent",NULL);
+
+	*errOut=[self finalizeBootstrapIfNeeded];     if(*errOut) return;
+	[[DOEnvironmentManager sharedManager] setIDownloadEnabled:idownloadEnabled needsUnsandbox:NO];
+
 	printf("Done!\n");
 }
 
