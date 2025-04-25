@@ -606,15 +606,14 @@ void *boomerang_server(struct boomerang_info *info)
 /*************************** roothide specific *******************/
 [[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"RootHide Stage") debug:NO];
 
-static dispatch_once_t once;
-dispatch_once(&once, ^{
-	const char *path=JBROOT_PATH("/basebin/.fakelib/dyld");
+const char *dyldPath=JBROOT_PATH("/basebin/.fakelib/dyld");
+if(access(dyldPath,F_OK)==-1){
 	int ret=basebin_generate(false);
 	if(ret!=0){
 		*errOut=[NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib userInfo:nil];
 		return;
 	}
-	ret=ensure_dyld_trustcache(path);
+	ret=ensure_dyld_trustcache(dyldPath);
 	if(ret!=0){
 		*errOut=[NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib userInfo:nil];
 		return;
@@ -623,7 +622,7 @@ dispatch_once(&once, ^{
 	setenv("DYLD_IN_CACHE","0",1);
 	setenv("DISABLE_TWEAKS","1",1);
 	setenv("DYLD_INSERT_LIBRARIES",JBROOT_PATH("/basebin/systemhook.dylib"),1);
-});
+}
 /******************************** roothide specific *************************/
 
 	
