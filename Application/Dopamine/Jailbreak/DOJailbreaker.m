@@ -606,28 +606,24 @@ void *boomerang_server(struct boomerang_info *info)
 /*************************** roothide specific *******************/
 [[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"RootHide Stage") debug:NO];
 
-int ret = basebin_generate(false);
-if (ret != 0) {
-	*errOut = [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Creating fakelib failed with error: %d", ret]}];
-	return;
-}
-
-ret = ensure_dyld_trustcache(JBROOT_PATH("/basebin/.fakelib/dyld"));
-if (ret != 0) {
-	*errOut = [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to upload dyld trustcache: %d", ret]}];
-	return;
-}
-
-exec_set_patch(true); /* launchdhook injected and dyld patched, 
-now we can enable dyld patching for new process */
-
-// don't use dyld-in-cache due to dyldhooks
-setenv("DYLD_IN_CACHE", "0", 1);
-// don't load tweak during jailbreaking
-setenv("DISABLE_TWEAKS", "1", 1);
-// using the stock path during jailbreaking
-setenv("DYLD_INSERT_LIBRARIES", JBROOT_PATH("/basebin/systemhook.dylib"), 1);
-
+static dispatch_once_t once;
+dispatch_once(&once, ^{
+	const char *path=JBROOT_PATH("/basebin/.fakelib/dyld");
+	int ret=basebin_generate(false);
+	if(ret!=0){
+		*errOut=[NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib userInfo:nil];
+		return;
+	}
+	ret=ensure_dyld_trustcache(path);
+	if(ret!=0){
+		*errOut=[NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedInitFakeLib userInfo:nil];
+		return;
+	}
+	exec_set_patch(true);
+	setenv("DYLD_IN_CACHE","0",1);
+	setenv("DISABLE_TWEAKS","1",1);
+	setenv("DYLD_INSERT_LIBRARIES",JBROOT_PATH("/basebin/systemhook.dylib"),1);
+});
 /******************************** roothide specific *************************/
 
 	
