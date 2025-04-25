@@ -222,70 +222,55 @@ sets[idx] = NULL;
 	return nil;
 }
 
-- (NSError *)elevatePrivileges
-{
+- (NSError *)elevatePrivileges {
 	uint64_t proc = proc_self();
 	uint64_t ucred = proc_ucred(proc);
-	
-	// Get uid 0
+	// uid/gid → 0, clear groups
 	kwrite32(proc + koffsetof(proc, svuid), 0);
 	kwrite32(ucred + koffsetof(ucred, svuid), 0);
 	kwrite32(ucred + koffsetof(ucred, ruid), 0);
 	kwrite32(ucred + koffsetof(ucred, uid), 0);
-	
-	// Get gid 0
 	kwrite32(proc + koffsetof(proc, svgid), 0);
 	kwrite32(ucred + koffsetof(ucred, rgid), 0);
 	kwrite32(ucred + koffsetof(ucred, svgid), 0);
 	kwrite32(ucred + koffsetof(ucred, groups), 0);
-	
 	// Add P_SUGID
 	uint32_t flag = kread32(proc + koffsetof(proc, flag));
-	if ((flag & P_SUGID) != 0) {
-		flag &= P_SUGID;
-		kwrite32(proc + koffsetof(proc, flag), flag);
-	}
-	
-	if (getuid() != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedGetRoot userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"Failed to get root, uid still %d", getuid()]}];
-	if (getgid() != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedGetRoot userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"Failed to get root, gid still %d", getgid()]}];
-	
+	if (flag & P_SUGID)
+		kwrite32(proc + koffsetof(proc, flag), flag & P_SUGID);
+	// verify root
+	if (getuid() != 0)
+		return [NSError errorWithDomain:JBErrorDomain
+								   code:JBErrorCodeFailedGetRoot
+							   userInfo:@{NSLocalizedDescriptionKey:
+			[NSString stringWithFormat:@"uid still %d", getuid()]}];
+	if (getgid() != 0)
+		return [NSError errorWithDomain:JBErrorDomain
+								   code:JBErrorCodeFailedGetRoot
+							   userInfo:@{NSLocalizedDescriptionKey:
+			[NSString stringWithFormat:@"gid still %d", getgid()]}];
 	// Unsandbox
 	uint64_t label = kread_ptr(ucred + koffsetof(ucred, label));
 	mac_label_set(label, 1, -1);
 	NSError *error = nil;
 	[[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"/var" error:&error];
-	if (error) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedUnsandbox userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"Failed to unsandbox, /var does not seem accessible (%s)", error.description.UTF8String]}];
+	if (error)
+		return [NSError errorWithDomain:JBErrorDomain
+								   code:JBErrorCodeFailedUnsandbox
+							   userInfo:@{NSLocalizedDescriptionKey:
+			[NSString stringWithFormat:@"/var not accessible (%s)",
+				error.description.UTF8String]}];
 	setenv("HOME", "/var/root", true);
 	setenv("CFFIXED_USER_HOME", "/var/root", true);
 	setenv("TMPDIR", "/var/tmp", true);
-	
-	// FUCKING dirhelper caches the temporary path
-	// So we have to do userland patchfinding to find the fucking string and overwrite it
-	/*char **pain = NULL;
-	uint32_t *dirhelperData = (uint32_t *)_dirhelper;
-	for (int i = 0; i < 100; i++) {
-		arm64_register destinationReg;
-		uint64_t imm = 0;
-		if (arm64_dec_ldr_imm(dirhelperData[i], &destinationReg, NULL, &imm, NULL, NULL) == 0) {
-			if (ARM64_REG_GET_NUM(destinationReg) == 1) {
-				uint32_t *adrpAddr = &dirhelperData[i - 1];
-				uint64_t adrpTarget = 0;
-				uint32_t adrpInst = *adrpAddr;
-				if (arm64_dec_adr_p(adrpInst, (uint64_t)adrpAddr, &adrpTarget, NULL, NULL) == 0) {
-					pain = (char **)(uint64_t)(adrpTarget + imm);
-					break;
-				}
-			}
-		}
-	}
-	*pain = strdup("/var/tmp");*/
-	
-	// Get CS_PLATFORM_BINARY
+	// CS_PLATFORM_BINARY
 	proc_csflags_set(proc, CS_PLATFORM_BINARY);
 	uint32_t csflags;
 	csops(getpid(), CS_OPS_STATUS, &csflags, sizeof(csflags));
-	if (!(csflags & CS_PLATFORM_BINARY)) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedPlatformize userInfo:@{NSLocalizedDescriptionKey:@"Failed to get CS_PLATFORM_BINARY"}];
-	
+	if (!(csflags & CS_PLATFORM_BINARY))
+		return [NSError errorWithDomain:JBErrorDomain
+								   code:JBErrorCodeFailedPlatformize
+							   userInfo:@{NSLocalizedDescriptionKey:@"CS_PLATFORM_BINARY failed"}];
 	return nil;
 }
 
