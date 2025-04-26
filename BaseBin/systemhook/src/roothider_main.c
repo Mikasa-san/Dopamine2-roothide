@@ -17,7 +17,6 @@ const char* HOOK_DYLIB_PATH = NULL;
 bool dyld_patch_global_enabled = true;
 bool dyld_patch_fallback_enabled = false;
 
-//export for PatchLoader
 __attribute__((visibility("default"))) int PLRequiredJIT() {
 	return 0;
 }
@@ -72,29 +71,22 @@ void loadPathHook()
 
 void redirect_env_paths(const char* rootdir)
 {
-	//for now libSystem should be initlized, container should be set.
 
 	char* homedir = NULL;
 
-/* 
-there is a bug in NSHomeDirectory,
-if a containerized root process changes its uid/gid, 
-NSHomeDirectory may return a home directory that it cannot access. (exclude NSTemporaryDirectory)
-We just keep this bug:
-*/
-	if(!issetugid()) // issetugid() should always be false at this time. (but how about persona-mgmt? idk)
+	if(!issetugid()) 
 	{
 		homedir = getenv("CFFIXED_USER_HOME");
 		if(homedir)
 		{
-#define CONTAINER_PATH_PREFIX   "/private/var/mobile/Containers/Data/" // +/Application,PluginKitPlugin,InternalDaemon
+#define CONTAINER_PATH_PREFIX   "/private/var/mobile/Containers/Data/" 
 			if(strncmp(homedir, CONTAINER_PATH_PREFIX, sizeof(CONTAINER_PATH_PREFIX)-1) == 0)
 			{
-				return; //containerized
+				return; 
 			}
 			else
 			{
-				homedir = NULL; //from parent, drop it
+				homedir = NULL; 
 			}
 		}
 	}
@@ -105,11 +97,6 @@ We just keep this bug:
 			homedir = pwd->pw_dir;
 		}
 	}
-
-	// if(!homedir) {
-	//	 //CFCopyHomeDirectoryURL does, but not for NSHomeDirectory
-	//	 homedir = getenv("HOME");
-	// }
 
 	if(!homedir) {
 		homedir = "/var/empty";
@@ -126,49 +113,47 @@ We just keep this bug:
 void redirect_paths(const char* rootdir)
 {
 	do {
-		
+
 		char executablePath[PATH_MAX]={0};
 		uint32_t bufsize=sizeof(executablePath);
 		if(_NSGetExecutablePath(executablePath, &bufsize) != 0)
 			break;
-		
+
 		char realexepath[PATH_MAX]={0};
 		if(!realpath(executablePath, realexepath))
 			break;
-			
+
 		char realjbroot[PATH_MAX+1]={0};
 		if(!realpath(rootdir, realjbroot))
 			break;
-		
+
 		if(realjbroot[0] && realjbroot[strlen(realjbroot)-1] != '/')
 			strlcat(realjbroot, "/", sizeof(realjbroot));
-		
+
 		if(strncmp(realexepath, realjbroot, strlen(realjbroot)) != 0)
 			break;
 
-		//for jailbroken binaries
 		redirect_env_paths(rootdir);
-		
+
 		if(_CFCanChangeEUIDs()) {
 			loadPathHook();
 		}
-	
+
 		pid_t ppid = __getppid();
 		ASSERT(ppid > 0);
 		if(ppid != 1)
 			break;
-		
+
 		char pwd[PATH_MAX];
 		if(getcwd(pwd, sizeof(pwd)) == NULL)
 			break;
 		if(strcmp(pwd, "/") != 0)
 			break;
-	
+
 		ASSERT(chdir(rootdir)==0);
-		
+
 	} while(0);
 }
-
 
 kSpawnConfig spawn_config_for_executable(const char* path, char *const argv[restrict]);
 void string_enumerate_components(const char *string, const char *separator, void (^enumBlock)(const char *pathString, bool *stop));
@@ -194,7 +179,7 @@ int posix_spawnattr_getprocesstype_np(const posix_spawnattr_t * __restrict, int 
 
 int roothide_systemhook___posix_spawn_prehook(pid_t *restrict pidp, const char *restrict path, struct _posix_spawn_args_desc *desc, char *const argv[restrict], char *const envp[restrict], void *orig, int (*trust_binary)(const char *path), int (*set_process_debugged)(uint64_t pid, bool fullyDebugged), double jetsamMultiplier)
 {
-	if(!path) { //Don't crash here due to bad posix_spawn call
+	if(!path) { 
 		return __posix_spawn_orig(pidp, path, desc, argv, envp);
 	}
 
@@ -249,7 +234,6 @@ int roothide_systemhook___posix_spawn_posthook(pid_t *restrict pidp, const char 
 				}
 			}
 
-			// Upload binary to trustcache if needed
 			jbclient_trust_executable_recurse(path, preferredArchsArray);
 
 			if (preferredArchsArray) {
@@ -273,15 +257,13 @@ int roothide_systemhook___posix_spawn_posthook(pid_t *restrict pidp, const char 
 	}
 
 	if (patch_exec) {
-		if (jbdSpawnExecStart(path, should_resume) != 0) { // jdb fault?
-			//restore flags
+		if (jbdSpawnExecStart(path, should_resume) != 0) { 
+
 			posix_spawnattr_setflags(attrp, flags);
 			return 201;
 		}
 	}
 
-	// on some devices dyldhook may fail due to vm_protect(VM_PROT_READ|VM_PROT_WRITE), 2, (os/kern) protection failure in dsc::__DATA_CONST:__const, 
-	// so we need to disable dyld-in-cache here. (or we can use VM_PROT_READ|VM_PROT_WRITE|VM_PROT_COPY)
 	char **envc = envbuf_mutcopy((const char **)envp);
 	if(envbuf_getenv(envc, "DYLD_INSERT_LIBRARIES")) {
 		envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
@@ -300,14 +282,13 @@ int roothide_systemhook___posix_spawn_posthook(pid_t *restrict pidp, const char 
 
 	envbuf_free(envc);
 
-	// maybe caller will use it again? restore flags
 	posix_spawnattr_setflags(attrp, flags);
 
-	if (patch_exec) { //exec failed?
+	if (patch_exec) { 
 		jbdSpawnExecCancel(path);
 	} else if (ret == 0 && pid > 0) {
 		if (should_suspend) {
-			if(jbdSpawnPatchChild(pid, should_resume) != 0) { // jdb fault? kill
+			if(jbdSpawnPatchChild(pid, should_resume) != 0) { 
 				kill(pid, SIGKILL);
 				return 202;
 			}
@@ -319,56 +300,47 @@ int roothide_systemhook___posix_spawn_posthook(pid_t *restrict pidp, const char 
 
 int roothide_systemhook___execve_prehook(const char *path, char *const argv[], char *const envp[], void *orig, int (*trust_binary)(const char *path))
 {
-	//try POSIX_SPAWN_SETEXEC first
+
 	posix_spawnattr_t attr = NULL;
 	posix_spawnattr_init(&attr);
 	posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETEXEC);
 	int ret = posix_spawn(NULL, path, NULL, &attr, argv, envp);
 	posix_spawnattr_destroy(&attr);
 
-	//posix_spawn with POSIX_SPAWN_SETEXEC failed
 	assert(ret != 0);
 
-	/* some processes are only allowed to call execve but not posix_spawn,
-	 e.g: "configd" on ios15, we need to trace it so that we can patch the subprocess before it runs. */
 	if(ret==EPERM && access(path, X_OK)==0)
 	{
 		trust_binary = __no_need_to_trust_now__;
 		return execve_hook_shared(path, argv, envp, orig, trust_binary);
 	}
 
-	// posix_spawn will return errno and restore errno if it fails
-	// so we need to set errno by ourself
 	errno = ret; 
 	return -1;
 }
 
 int roothide_systemhook___execve_posthook(const char *path, char *const argv[], char *const envp[])
 {
-	/* the posix_spawn call above should already trust the executable
-	(also its libraries) and the inserted libraries, so we can skip them below */
 
 	bool traced = false;
 
-	if(jbdExecTraceStart(path, &traced) != 0) { // jdb fault?
+	if(jbdExecTraceStart(path, &traced) != 0) { 
 		errno = 203;
 		return -1;
 	}
 
-	//wait for SIGSTOP
 	while(!traced) usleep(10*1000);
 
 	char **envc = envbuf_mutcopy((const char **)envp);
 	if(envbuf_getenv(envc, "DYLD_INSERT_LIBRARIES")) {
 		envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
 	}
-	
+
 	int ret = __execve_orig(path, argv, envc);
 	int olderr = errno;
-	
+
 	envbuf_free(envc);
 
-	// exec* should never return if successful
 	jbdExecTraceCancel(path);
 
 	errno = olderr;
@@ -434,7 +406,7 @@ int hook_dyld_routine(void **dyld, int idx, void *hook, void **orig, uint16_t pa
 
 void init_dyldhooks()
 {
-	// Apply dyld hooks
+
 	void ***gDyldPtr = litehook_find_dsc_symbol("/usr/lib/system/libdyld.dylib", "__ZN5dyld45gDyldE");
 	if (gDyldPtr) {
 		hook_dyld_routine(*gDyldPtr, 14, (void *)&dyld_dlopen_hook, (void **)&dyld_dlopen_orig, 0xBF31);
@@ -499,9 +471,8 @@ void roothide_init_with_executable(const char* executable)
 #endif
 
 	if(string_has_suffix(executable, "/Dopamine.app/Dopamine")) {
-		loadPathHook(); //requre jit
+		loadPathHook(); 
 	}
 
-	dlopen(JBROOT_PATH("/usr/lib/roothidepatch.dylib"), RTLD_NOW); //require jit
+	dlopen(JBROOT_PATH("/usr/lib/roothidepatch.dylib"), RTLD_NOW); 
 }
-
