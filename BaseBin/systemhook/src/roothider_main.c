@@ -23,45 +23,45 @@ __attribute__((visibility("default"))) int PLRequiredJIT() {
 }
 
 static uid_t _CFGetSVUID(bool *successful) {
-    uid_t uid = -1;
-    struct kinfo_proc kinfo;
-    u_int miblen = 4;
-    size_t  len;
-    int mib[miblen];
-    int ret;
-    mib[0] = CTL_KERN;
-    mib[1] = KERN_PROC;
-    mib[2] = KERN_PROC_PID;
-    mib[3] = getpid();
-    len = sizeof(struct kinfo_proc);
-    ret = sysctl(mib, miblen, &kinfo, &len, NULL, 0);
-    if (ret != 0) {
-        uid = -1;
-        *successful = false;
-    } else {
-        uid = kinfo.kp_eproc.e_pcred.p_svuid;
-        *successful = true;
-    }
-    return uid;
+	uid_t uid = -1;
+	struct kinfo_proc kinfo;
+	u_int miblen = 4;
+	size_t  len;
+	int mib[miblen];
+	int ret;
+	mib[0] = CTL_KERN;
+	mib[1] = KERN_PROC;
+	mib[2] = KERN_PROC_PID;
+	mib[3] = getpid();
+	len = sizeof(struct kinfo_proc);
+	ret = sysctl(mib, miblen, &kinfo, &len, NULL, 0);
+	if (ret != 0) {
+		uid = -1;
+		*successful = false;
+	} else {
+		uid = kinfo.kp_eproc.e_pcred.p_svuid;
+		*successful = true;
+	}
+	return uid;
 }
 
 bool _CFCanChangeEUIDs(void) {
-    static bool canChangeEUIDs;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        uid_t euid = geteuid();
-        uid_t uid = getuid();
-        bool gotSVUID = false;
-        uid_t svuid = _CFGetSVUID(&gotSVUID);
-        canChangeEUIDs = (uid == 0 || uid != euid || svuid != euid || !gotSVUID);
-    });
-    return canChangeEUIDs;
+	static bool canChangeEUIDs;
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		uid_t euid = geteuid();
+		uid_t uid = getuid();
+		bool gotSVUID = false;
+		uid_t svuid = _CFGetSVUID(&gotSVUID);
+		canChangeEUIDs = (uid == 0 || uid != euid || svuid != euid || !gotSVUID);
+	});
+	return canChangeEUIDs;
 }
 
 void loadPathHook()
 {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
 		void* roothidehooks = dlopen(JBROOT_PATH("/basebin/roothidehooks.dylib"), RTLD_NOW);
 		ASSERT(roothidehooks != NULL);
 		void (*pathhook)() = dlsym(roothidehooks, "pathhook");
@@ -72,9 +72,9 @@ void loadPathHook()
 
 void redirect_env_paths(const char* rootdir)
 {
-    //for now libSystem should be initlized, container should be set.
+	//for now libSystem should be initlized, container should be set.
 
-    char* homedir = NULL;
+	char* homedir = NULL;
 
 /* 
 there is a bug in NSHomeDirectory,
@@ -82,38 +82,38 @@ if a containerized root process changes its uid/gid,
 NSHomeDirectory may return a home directory that it cannot access. (exclude NSTemporaryDirectory)
 We just keep this bug:
 */
-    if(!issetugid()) // issetugid() should always be false at this time. (but how about persona-mgmt? idk)
-    {
-        homedir = getenv("CFFIXED_USER_HOME");
-        if(homedir)
-        {
+	if(!issetugid()) // issetugid() should always be false at this time. (but how about persona-mgmt? idk)
+	{
+		homedir = getenv("CFFIXED_USER_HOME");
+		if(homedir)
+		{
 #define CONTAINER_PATH_PREFIX   "/private/var/mobile/Containers/Data/" // +/Application,PluginKitPlugin,InternalDaemon
-            if(strncmp(homedir, CONTAINER_PATH_PREFIX, sizeof(CONTAINER_PATH_PREFIX)-1) == 0)
-            {
-                return; //containerized
-            }
-            else
-            {
-                homedir = NULL; //from parent, drop it
-            }
-        }
-    }
+			if(strncmp(homedir, CONTAINER_PATH_PREFIX, sizeof(CONTAINER_PATH_PREFIX)-1) == 0)
+			{
+				return; //containerized
+			}
+			else
+			{
+				homedir = NULL; //from parent, drop it
+			}
+		}
+	}
 
-    if(!homedir) {
-        struct passwd* pwd = getpwuid(geteuid());
-        if(pwd && pwd->pw_dir) {
-            homedir = pwd->pw_dir;
-        }
-    }
+	if(!homedir) {
+		struct passwd* pwd = getpwuid(geteuid());
+		if(pwd && pwd->pw_dir) {
+			homedir = pwd->pw_dir;
+		}
+	}
 
-    // if(!homedir) {
-    //     //CFCopyHomeDirectoryURL does, but not for NSHomeDirectory
-    //     homedir = getenv("HOME");
-    // }
+	// if(!homedir) {
+	//	 //CFCopyHomeDirectoryURL does, but not for NSHomeDirectory
+	//	 homedir = getenv("HOME");
+	// }
 
-    if(!homedir) {
-        homedir = "/var/empty";
-    }
+	if(!homedir) {
+		homedir = "/var/empty";
+	}
 
 	if(homedir[0] == '/') {
 		char newhome[PATH_MAX*2]={0};
@@ -125,48 +125,48 @@ We just keep this bug:
 
 void redirect_paths(const char* rootdir)
 {
-    do {
-        
-        char executablePath[PATH_MAX]={0};
-        uint32_t bufsize=sizeof(executablePath);
-        if(_NSGetExecutablePath(executablePath, &bufsize) != 0)
-            break;
-        
-        char realexepath[PATH_MAX]={0};
-        if(!realpath(executablePath, realexepath))
-            break;
-            
-        char realjbroot[PATH_MAX+1]={0};
-        if(!realpath(rootdir, realjbroot))
-            break;
-        
-        if(realjbroot[0] && realjbroot[strlen(realjbroot)-1] != '/')
-            strlcat(realjbroot, "/", sizeof(realjbroot));
-        
-        if(strncmp(realexepath, realjbroot, strlen(realjbroot)) != 0)
-            break;
+	do {
+		
+		char executablePath[PATH_MAX]={0};
+		uint32_t bufsize=sizeof(executablePath);
+		if(_NSGetExecutablePath(executablePath, &bufsize) != 0)
+			break;
+		
+		char realexepath[PATH_MAX]={0};
+		if(!realpath(executablePath, realexepath))
+			break;
+			
+		char realjbroot[PATH_MAX+1]={0};
+		if(!realpath(rootdir, realjbroot))
+			break;
+		
+		if(realjbroot[0] && realjbroot[strlen(realjbroot)-1] != '/')
+			strlcat(realjbroot, "/", sizeof(realjbroot));
+		
+		if(strncmp(realexepath, realjbroot, strlen(realjbroot)) != 0)
+			break;
 
-        //for jailbroken binaries
-        redirect_env_paths(rootdir);
+		//for jailbroken binaries
+		redirect_env_paths(rootdir);
 		
 		if(_CFCanChangeEUIDs()) {
 			loadPathHook();
 		}
-    
-        pid_t ppid = __getppid();
-        ASSERT(ppid > 0);
-        if(ppid != 1)
-            break;
-        
-        char pwd[PATH_MAX];
-        if(getcwd(pwd, sizeof(pwd)) == NULL)
-            break;
-        if(strcmp(pwd, "/") != 0)
-            break;
-    
-        ASSERT(chdir(rootdir)==0);
-        
-    } while(0);
+	
+		pid_t ppid = __getppid();
+		ASSERT(ppid > 0);
+		if(ppid != 1)
+			break;
+		
+		char pwd[PATH_MAX];
+		if(getcwd(pwd, sizeof(pwd)) == NULL)
+			break;
+		if(strcmp(pwd, "/") != 0)
+			break;
+	
+		ASSERT(chdir(rootdir)==0);
+		
+	} while(0);
 }
 
 
@@ -188,7 +188,7 @@ int __no_need_to_trust_now__(const char* path)
 	return 0;
 }
 
-#define NBINPREFS       4
+#define NBINPREFS	   4
 #define POSIX_SPAWN_PROC_TYPE_DRIVER 0x700
 int posix_spawnattr_getprocesstype_np(const posix_spawnattr_t * __restrict, int * __restrict) __API_AVAILABLE(macos(10.8), ios(6.0));
 
@@ -381,7 +381,7 @@ void* dyld_dlopen_hook(void *dyld, const char* path, int mode)
 	if (path && !(mode & RTLD_NOLOAD)) {
 		jbclient_trust_library_recurse(path, __builtin_return_address(0));
 	}
-    __attribute__((musttail)) return dyld_dlopen_orig(dyld, path, mode);
+	__attribute__((musttail)) return dyld_dlopen_orig(dyld, path, mode);
 }
 
 void* (*dyld_dlopen_from_orig)(void *dyld, const char* path, int mode, void* addressInCaller);
