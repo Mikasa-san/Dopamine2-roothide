@@ -99,8 +99,8 @@ int new_LSServer_RebuildApplicationDatabases() {
 	int r = orig_LSServer_RebuildApplicationDatabases();
 	if (access(jbroot("/.disable_auto_uicache"), F_OK)) {
 		dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-			char *const args[] = {jbroot("/usr/bin/uicache"), "-a", NULL};
-			posix_spawn(NULL, args[0], NULL, NULL, args, environ);
+			const char *const args[] = { jbroot("/usr/bin/uicache"), "-a", NULL };
+			posix_spawn(NULL, args[0], NULL, NULL, (char *const *)args, environ);
 		});
 	}
 	return r;
