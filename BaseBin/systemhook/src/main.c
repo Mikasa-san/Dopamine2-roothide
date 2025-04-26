@@ -82,17 +82,11 @@ int dyld_hook_routine(void **dyld, int idx, void *hook, void **orig, uint16_t pa
 	return -1;
 }
 
-// dlsym calls use __builtin_return_address(0) to determine what library called it
-// Since we hook them, if we just call the original function on our own, the return address will always point to systemhook
-// Therefore we must ensure the call to the original function is a tail call, which ensures that the stack and lr are restored and the compiler turns the call into a direct branch
-// This is done via __attribute__((musttail)), this way __builtin_return_address(0) will point to the original calling library instead of systemhook
-
 void *(*dyld_dlsym_orig)(void *dyld, void *handle, const char *name);
 void *dyld_dlsym_hook(void *dyld, void *handle, const char *name)
 {
 	if (handle == gLibSandboxHandle && !strcmp(name, "sandbox_apply")) {
-		// We abuse the fact that libsystem_sandbox will call dlsym to get the sandbox_apply pointer here
-		// Because we can just return a different pointer, we avoid doing instruction replacements
+
 		return sandbox_apply_hook;
 	}
 	__attribute__((musttail)) return dyld_dlsym_orig(dyld, handle, name);
@@ -102,12 +96,6 @@ int ptrace_hook(int request, pid_t pid, caddr_t addr, int data)
 {
 	int r = syscall(SYS_ptrace, request, pid, addr, data);
 
-	// ptrace works on any process when the caller is unsandboxed,
-	// but when the victim process does not have the get-task-allow entitlement,
-	// it will fail to set the debug flags, therefore we patch ptrace to manually apply them
-	// processes that have tweak injection enabled will have their debug flags already set
-	// this is only relevant for ones that don't, e.g. if you disable tweak injection on an app via choicy
-	// but still want to be able to attach a debugger to them
 	if (r == 0 && (request == PT_ATTACHEXC || request == PT_ATTACH)) {
 		jbclient_platform_set_process_debugged(pid, true);
 		jbclient_platform_set_process_debugged(getpid(), true);
@@ -117,9 +105,6 @@ int ptrace_hook(int request, pid_t pid, caddr_t addr, int data)
 }
 
 #ifndef __arm64e__
-
-// The NECP subsystem is the only thing in the kernel that ever checks CS_VALID on userspace processes (Only on iOS >=16)
-// In order to not break system functionality, we need to readd CS_VALID before any of these are invoked
 
 int necp_match_policy_hook(uint8_t *parameters, size_t parameters_size, void *returned_result)
 {
@@ -150,11 +135,6 @@ int necp_session_action_hook(int necp_fd, uint32_t action, uint8_t *in_buffer, s
 	jbclient_cs_revalidate();
 	return syscall(SYS_necp_session_action, necp_fd, action, in_buffer, in_buffer_length, out_buffer, out_buffer_length);
 }
-
-// For the userland, there are multiple processes that will check CS_VALID for one reason or another
-// As we inject system wide (or at least almost system wide), we can just patch the source of the info though - csops itself
-// Additionally we also remove CS_DEBUGGED while we're at it, as on arm64e this also is not set and everything is fine
-// That way we have unified behaviour between both arm64 and arm64e
 
 int csops_hook(pid_t pid, unsigned int ops, void *useraddr, size_t usersize)
 {
@@ -205,8 +185,6 @@ bool should_enable_tweaks(void)
 		}
 	}
 
-
-/******************* roothide specific ***************/
 const char *safeModeValue = getenv("_SafeMode");
 if (safeModeValue) {
 	if (!strcmp(safeModeValue, "1")) {
@@ -219,14 +197,11 @@ if (msSafeModeValue) {
 		return false;
 	}
 }
-/******************* roothide specific *************/
-
 
 	const char *tweaksDisabledPathSuffixes[] = {
-		// System binaries
+
 		"/usr/libexec/xpcproxy",
 
-		// Dopamine app itself (jailbreak detection bypass tweaks can break it)
 		"Dopamine.app/Dopamine",
 	};
 	for (size_t i = 0; i < sizeof(tweaksDisabledPathSuffixes) / sizeof(const char*); i++) {
@@ -234,7 +209,7 @@ if (msSafeModeValue) {
 	}
 
 	if (__builtin_available(iOS 16.0, *)) {
-		// These seem to be problematic on iOS 16+ (dyld gets stuck in a weird way when opening TweakLoader)
+
 		const char *iOS16TweaksDisabledPaths[] = {
 			"/usr/libexec/logd",
 			"/usr/sbin/notifyd",
@@ -282,24 +257,20 @@ const struct mach_header_64 *get_dyld_mach_header(void)
 
 int parse_dyldhook_jbinfo(char **jbRootPathOut, char **bootUUIDOut, char **sandboxExtensionsOut, bool *fullyDebuggedOut)
 {
-	// Get dyld header
+
 	const struct mach_header_64 *dyldHeader = get_dyld_mach_header();
 	if (!dyldHeader) return -1;
 
-	// Check if dyld LC_UUID contains dopamine magic
 	uuid_t dyldUUID;
 	if (!_dyld_get_image_uuid((const struct mach_header *)dyldHeader, dyldUUID)) return -2;
 	if (!string_has_prefix((char *)dyldUUID, "DOPA")) return -3;
 
-	// If so, get __jbinfo section
 	size_t jbInfoSize = 0;
 	struct dyld_jbinfo *jbInfo = (struct dyld_jbinfo *)getsectiondata(dyldHeader, "__DATA", "__jbinfo", &jbInfoSize);
 	if (!jbInfo) return -4;
 
-	// Check if dyld already performed check-in
 	if (jbInfo->state != DYLD_STATE_CHECKED_IN) return -5;
 
-	// If so, parse jbinfo
 	if (jbRootPathOut)        *jbRootPathOut        = jbInfo->jbRootPath;
 	if (bootUUIDOut)          *bootUUIDOut          = jbInfo->bootUUID;
 	if (sandboxExtensionsOut) *sandboxExtensionsOut = jbInfo->sandboxExtensions;
@@ -310,28 +281,20 @@ int parse_dyldhook_jbinfo(char **jbRootPathOut, char **bootUUIDOut, char **sandb
 
 __attribute__((constructor)) static void initializer(void)
 {	
-/***** roothide specific ****/
+
 	roothide_init();
-/***** roothide specific ****/
 
-
-	// Under normal circumstances, dyldhook will have already handled the check-in, so get the check-in information from the __jbinfo section
-	// For more information on the check-in process, check the comments in dyldhook
 	if (parse_dyldhook_jbinfo(&JB_RootPath, &JB_BootUUID, &JB_SandboxExtensions, &gFullyDebugged) != 0) {
-		// If under any circumstances dyldhook has *not* performed a check-in, do it now
-		// This code path is taken inside xpcproxy on iOS 16, because launchd apparently no longer passes it a bootstrap port
+
 		if (jbclient_process_checkin(&JB_RootPath, &JB_BootUUID, &JB_SandboxExtensions, &gFullyDebugged) == 0) {
 			consume_tokenized_sandbox_extensions(JB_SandboxExtensions);
 		}
 		else {
-			// If neither dyldhook nor systemhook managed to perform the check-in, something is very wrong and the best thing we can do is bail out
-			// Should realistically never happen though
+
 			return;
 		}
 	}
 
-	// Unset DYLD_INSERT_LIBRARIES, but only if systemhook itself is the only thing contained in it
-	// Feeable attempt at making jailbreak detection harder
 	const char *dyldInsertLibraries = getenv("DYLD_INSERT_LIBRARIES");
 	if (dyldInsertLibraries) {
 		if (!strcmp(dyldInsertLibraries, HOOK_DYLIB_PATH)) {
@@ -339,14 +302,11 @@ __attribute__((constructor)) static void initializer(void)
 		}
 	}
 
-	// Apply posix_spawn / execve hooks
 	if (__builtin_available(iOS 16.0, *)) {
 		litehook_hook_function(__posix_spawn, __posix_spawn_hook);
 		litehook_hook_function(__execve,      __execve_hook);
 	}
 	else {
-		// On iOS 15 there is a way to hook posix_spawn and execve without doing instruction replacements
-		// Unfortunately Apple decided to remove these in iOS 16 :(
 
 		void **posix_spawn_with_filter = litehook_find_dsc_symbol("/usr/lib/system/libsystem_kernel.dylib", "_posix_spawn_with_filter");
 		void **execve_with_filter      = litehook_find_dsc_symbol("/usr/lib/system/libsystem_kernel.dylib", "_execve_with_filter");
@@ -355,40 +315,30 @@ __attribute__((constructor)) static void initializer(void)
 		*execve_with_filter      = __execve_hook;
 	}
 
-	// Hook the dyld_shared_cache __fcntl to jump to the dyld __fcntl instead
-	// This makes it so that library validation is also bypassed if someone calls fcntl in userspace to attach a signature manually
 	void *dyld___fcntl = litehook_find_symbol(get_dyld_mach_header(), "___fcntl");
-	extern int __fcntl(int fd, int op, ... /* arg */ );
+	extern int __fcntl(int fd, int op, ...  );
 	litehook_hook_function(__fcntl, dyld___fcntl);
 
-	// Initialize stuff neccessary for sandbox_apply hook
 	gLibSandboxHandle = dlopen("/usr/lib/libsandbox.1.dylib", RTLD_FIRST | RTLD_LOCAL | RTLD_LAZY);
 	sandbox_apply_orig = dlsym(gLibSandboxHandle, "sandbox_apply");
 
-	// Apply dyld hooks
 	void ***gDyldPtr = litehook_find_dsc_symbol("/usr/lib/system/libdyld.dylib", "__ZN5dyld45gDyldE");
 	if (gDyldPtr) {
-		// TODO: Maybe we can just rebind sandbox_apply instead?
+
 		dyld_hook_routine(*gDyldPtr, 17, (void *)&dyld_dlsym_hook, (void **)&dyld_dlsym_orig, 0x839D);
 	}
 
-
-/*************************** roothide *************************/
-/* after unsandboxing jbroot and applying library-trust-hook */
-roothide_init_with_checkin(JB_RootPath); // will hook dlopen* if necessary
-/*************************** roothide ************************/
-
+roothide_init_with_checkin(JB_RootPath); 
 
 #ifdef __arm64e__
-	// Since pages have been modified in this process, we need to load forkfix to ensure forking will work
-	// Optimization: If the process cannot fork at all due to sandbox, we don't need to do anything
+
 	if (sandbox_check(getpid(), "process-fork", SANDBOX_CHECK_NO_REPORT, NULL) == 0) {
 		dlopen(JBROOT_PATH("/basebin/forkfix.dylib"), RTLD_NOW);
 	}
 #endif
 
 	if (load_executable_path() == 0) {
-		// Load rootlesshooks / watchdoghook when neccessary
+
 		if (!strcmp(gExecutablePath, "/usr/sbin/cfprefsd") ||
 			!strcmp(gExecutablePath, "/System/Library/CoreServices/SpringBoard.app/SpringBoard") ||
 			!strcmp(gExecutablePath, "/usr/libexec/lsd")) {
@@ -398,19 +348,12 @@ roothide_init_with_checkin(JB_RootPath); // will hook dlopen* if necessary
 			dlopen(JBROOT_PATH("/basebin/watchdoghook.dylib"), RTLD_NOW);
 		}
 
-		// ptrace hook to allow attaching a debugger to processes that systemhook did not inject into
-		// e.g. allows attaching debugserver to an app where tweak injection has been disabled via choicy
-		// since we want to keep hooks minimal and debugserver is the only thing I can think of that would
-		// call ptrace and expect it to allow invalid pages, we only hook it in debugserver
-		// this check is a bit shit since we rely on the name of the binary, but who cares ¯\_(ツ)_/¯
 		if (string_has_suffix(gExecutablePath, "/debugserver")) {
 			litehook_hook_function(ptrace, ptrace_hook);
 		}
 
 #ifndef __arm64e__
-		// On arm64, writing to executable pages removes CS_VALID from the csflags of the process
-		// These hooks are neccessary to get the system to behave with this (since multiple system APIs check for CS_VALID and produce failures if it's not set)
-		// They are ugly but needed
+
 		litehook_hook_function(csops, csops_hook);
 		litehook_hook_function(csops_audittoken, csops_audittoken_hook);
 		if (__builtin_available(iOS 16.0, *)) {
@@ -422,14 +365,8 @@ roothide_init_with_checkin(JB_RootPath); // will hook dlopen* if necessary
 		}
 #endif
 
-
-/******************* roothide *****************/
 roothide_init_with_executable(gExecutablePath);
-/******************* roothide ****************/
 
-
-		// Load tweaks if desired
-		// We can hardcode /var/jb here since if it doesn't exist, loading TweakLoader.dylib is not going to work anyways
 		if (should_enable_tweaks()) {
 			const char *tweakLoaderPath = JBROOT_PATH("/usr/lib/TweakLoader.dylib");
 			if (access(tweakLoaderPath, F_OK) == 0) {
@@ -441,7 +378,7 @@ roothide_init_with_executable(gExecutablePath);
 		}
 
 #ifndef __arm64e__
-		// Feeable attempt at adding back CS_VALID
+
 		jbclient_cs_revalidate();
 #endif
 	}
