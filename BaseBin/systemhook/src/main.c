@@ -17,6 +17,9 @@
 #include "sandbox.h"
 #include "private.h"
 
+extern int parse_dyldhook_jbinfo(char **jbRootPathOut, char **bootUUIDOut, char **sandboxExtensionsOut, bool *fullyDebuggedOut);
+extern const struct mach_header_64 *get_dyld_mach_header(void);
+
 int __posix_spawn_hook(pid_t *restrict pid, const char *restrict path,
 	struct _posix_spawn_args_desc *desc,
 	char *const argv[restrict], char *const envp[restrict]);
