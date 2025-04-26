@@ -14,285 +14,146 @@
 #include <libjailbreak/jbclient_xpc.h>
 #include <libjailbreak/jbserver_domains.h>
 
-bool string_has_prefix(const char *str, const char* prefix)
-{
-	if (!str || !prefix) {
-		return false;
-	}
-
-	size_t str_len = strlen(str);
-	size_t prefix_len = strlen(prefix);
-
-	if (str_len < prefix_len) {
-		return false;
-	}
-
-	return !strncmp(str, prefix, prefix_len);
+bool string_has_prefix(const char *str, const char *prefix) {
+	if (!str || !prefix) return false;
+	size_t pre = strlen(prefix);
+	return strlen(str) >= pre && memcmp(str, prefix, pre) == 0;
 }
 
-bool string_has_suffix(const char* str, const char* suffix)
-{
-	if (!str || !suffix) {
-		return false;
-	}
-
-	size_t str_len = strlen(str);
-	size_t suffix_len = strlen(suffix);
-
-	if (str_len < suffix_len) {
-		return false;
-	}
-
-	return !strcmp(str + str_len - suffix_len, suffix);
+bool string_has_suffix(const char *str, const char *suffix) {
+	if (!str || !suffix) return false;
+	size_t sfx = strlen(suffix), len = strlen(str);
+	return len >= sfx && memcmp(str + len - sfx, suffix, sfx) == 0;
 }
 
-void string_enumerate_components(const char *string, const char *separator, void (^enumBlock)(const char *pathString, bool *stop))
-{
-	char *stringCopy = strdup(string);
-	char *curString = strtok(stringCopy, separator);
-	while (curString != NULL) {
+void string_enumerate_components(const char *string, const char *sep, void (^enumBlock)(const char *comp, bool *stop)) {
+	char *buf = strdup(string);
+	char *tok = strtok(buf, sep);
+	while (tok) {
 		bool stop = false;
-		enumBlock(curString, &stop);
+		enumBlock(tok, &stop);
 		if (stop) break;
-		curString = strtok(NULL, separator);
+		tok = strtok(NULL, sep);
 	}
-	free(stringCopy);
+	free(buf);
 }
 
-kSpawnConfig spawn_config_for_executable(const char* path, char *const argv[restrict])
-{
-	// Blacklist to ensure general system stability
-	// I don't like this but for some processes it seems neccessary
-	const char *processBlacklist[] = {
-		"/System/Library/Frameworks/GSS.framework/Helpers/GSSCred",
-		"/System/Library/PrivateFrameworks/DataAccess.framework/Support/dataaccessd",
-		"/System/Library/PrivateFrameworks/IDSBlastDoorSupport.framework/XPCServices/IDSBlastDoorService.xpc/IDSBlastDoorService",
-		"/System/Library/PrivateFrameworks/MessagesBlastDoorSupport.framework/XPCServices/MessagesBlastDoorService.xpc/MessagesBlastDoorService",
-	};
-	size_t blacklistCount = sizeof(processBlacklist) / sizeof(processBlacklist[0]);
-	for (size_t i = 0; i < blacklistCount; i++)
-	{
-		if (!strcmp(processBlacklist[i], path)) return 0;
-	}
+static const char *processBlacklist[] = {
+	"/System/Library/Frameworks/GSS.framework/Helpers/GSSCred",
+	"/System/Library/PrivateFrameworks/DataAccess.framework/Support/dataaccessd",
+	"/System/Library/PrivateFrameworks/IDSBlastDoorSupport.framework/XPCServices/IDSBlastDoorService.xpc/IDSBlastDoorService",
+	"/System/Library/PrivateFrameworks/MessagesBlastDoorSupport.framework/XPCServices/MessagesBlastDoorService.xpc/MessagesBlastDoorService"
+};
 
-	return (kSpawnConfigInject | kSpawnConfigTrust);
+kSpawnConfig spawn_config_for_executable(const char *path, char *const argv[restrict]) {
+	for (size_t i = 0; i < sizeof(processBlacklist)/sizeof(*processBlacklist); i++) {
+		if (strcmp(processBlacklist[i], path) == 0)
+			return 0;
+	}
+	return kSpawnConfigInject | kSpawnConfigTrust;
 }
 
-int __posix_spawn_orig(pid_t *restrict pid, const char *restrict path, struct _posix_spawn_args_desc *desc, char *const argv[restrict], char * const envp[restrict])
-{
+int __posix_spawn_orig(pid_t *pid, const char *path, struct _posix_spawn_args_desc *desc, char *const argv[restrict], char *const envp[restrict]) {
 	return syscall(SYS_posix_spawn, pid, path, desc, argv, envp);
 }
 
-int __execve_orig(const char *path, char *const argv[], char *const envp[])
-{
+int __execve_orig(const char *path, char *const argv[], char *const envp[]) {
 	return syscall(SYS_execve, path, argv, envp);
 }
 
-// 1. Ensure the binary about to be spawned and all of it's dependencies are trust cached
-// 2. Insert "DYLD_INSERT_LIBRARIES=/usr/lib/systemhook.dylib" into all binaries spawned
-// 3. Increase Jetsam limit to more sane value (Multipler defined as JETSAM_MULTIPLIER)
-
 static int spawn_exec_hook_common(const char *path,
-								  char *const argv[restrict],
-								  char *const envp[restrict],
-			   struct _posix_spawn_args_desc *desc,
-										int (*trust_binary)(const char *path),
-									   double jetsamMultiplier,
-									    int (^orig)(char *const envp[restrict]))
-{
-	if (!path) {
-		return orig(envp);
+					 char *const argv[restrict],
+					 char *const envp[restrict],
+					 struct _posix_spawn_args_desc *desc,
+					 int (*trust_binary)(const char *),
+					 double jetsamMultiplier,
+					 int (^orig_call)(char *const envp_patched[])) {
+	if (!path) return orig_call((char *const*)envp);
+
+	posix_spawnattr_t attr = desc ? desc->attrp : NULL;
+	kSpawnConfig cfg = spawn_config_for_executable(path, argv);
+
+	if (cfg & kSpawnConfigTrust) trust_binary(path);
+
+	// Check existing DYLD_INSERT_LIBRARIES
+	const char *existing = envbuf_getenv((const char **)envp, "DYLD_INSERT_LIBRARIES");
+	bool hookInserted = false;
+	if (existing) {
+		char *dup = strdup(existing);
+		char *tok = strtok(dup, ":");
+		while (tok) {
+			if (strcmp(tok, HOOK_DYLIB_PATH) == 0) { hookInserted = true; break; }
+			tok = strtok(NULL, ":");
+		}
+		free(dup);
 	}
 
-	posix_spawnattr_t attr = NULL;
-	if (desc) attr = desc->attrp;
+	// Determine injection
+	bool inject = (cfg & kSpawnConfigInject) != 0;
+	const char *safe = envbuf_getenv((const char **)envp, "_SafeMode");
+	const char *mss = envbuf_getenv((const char **)envp, "_MSSafeMode");
+	if ((safe && strcmp(safe, "1") == 0) || (mss && strcmp(mss, "1") == 0)) inject = false;
 
-	kSpawnConfig spawnConfig = spawn_config_for_executable(path, argv);
-
-	if (spawnConfig & kSpawnConfigTrust) {
-		// Upload binary to trustcache if needed
-		trust_binary(path);
+	// Adjust jetsam
+	if (inject && attr && jetsamMultiplier > 1) {
+		uint8_t *a = (uint8_t*)attr;
+		int *active = (int*)(a + POSIX_SPAWNATTR_OFF_MEMLIMIT_ACTIVE);
+		int *inactive = (int*)(a + POSIX_SPAWNATTR_OFF_MEMLIMIT_INACTIVE);
+		if (*active != -1) *active *= jetsamMultiplier;
+		if (*inactive != -1) *inactive *= jetsamMultiplier;
 	}
 
-	const char *existingLibraryInserts = envbuf_getenv((const char **)envp, "DYLD_INSERT_LIBRARIES");
-	__block bool systemHookAlreadyInserted = false;
-	if (existingLibraryInserts) {
-		string_enumerate_components(existingLibraryInserts, ":", ^(const char *existingLibraryInsert, bool *stop) {
-			if (!strcmp(existingLibraryInsert, HOOK_DYLIB_PATH)) {
-				systemHookAlreadyInserted = true;
-			}
-		});
-	}
-
-	int JBEnvAlreadyInsertedCount = (int)systemHookAlreadyInserted;
-
-	// Check if we can find at least one reason to not insert jailbreak related environment variables
-	// In this case we also need to remove pre existing environment variables if they are already set
-	bool shouldInsertJBEnv = true;
-	bool hasSafeModeVariable = false;
-	do {
-		if (!(spawnConfig & kSpawnConfigInject)) {
-			shouldInsertJBEnv = false;
-			break;
-		}
-
-		// Check if we can find a _SafeMode or _MSSafeMode variable
-		// In this case we do not want to inject anything
-		const char *safeModeValue = envbuf_getenv((const char **)envp, "_SafeMode");
-		const char *msSafeModeValue = envbuf_getenv((const char **)envp, "_MSSafeMode");
-		if (safeModeValue) {
-			if (!strcmp(safeModeValue, "1")) {
-				if(!allowInjectWithSafeMode(path)) shouldInsertJBEnv = false;
-				hasSafeModeVariable = true;
-				break;
-			}
-		}
-		if (msSafeModeValue) {
-			if (!strcmp(msSafeModeValue, "1")) {
-				if(!allowInjectWithSafeMode(path)) shouldInsertJBEnv = false;
-				hasSafeModeVariable = true;
-				break;
-			}
-		}
-
-		int proctype = 0;
-		if (posix_spawnattr_getprocesstype_np(&attr, &proctype) == 0) {
-			if (proctype == POSIX_SPAWN_PROC_TYPE_DRIVER) {
-				// Do not inject hook into DriverKit drivers
-				shouldInsertJBEnv = false;
-				break;
-			}
-		}
-
-		if (access(HOOK_DYLIB_PATH, F_OK) != 0) {
-			// If the hook dylib doesn't exist, don't try to inject it (would crash the process)
-			shouldInsertJBEnv = false;
-			break;
-		}
-	} while (0);
-
-	// If systemhook is being injected and jetsam limits are set, increase them by a factor of jetsamMultiplier
-	if (shouldInsertJBEnv) {
-		uint8_t *attrStruct = (uint8_t *)attr;
-		if (attrStruct) {
-			if (jetsamMultiplier == 0 || isnan(jetsamMultiplier)) jetsamMultiplier = 3; // default value (3x)
-			if (jetsamMultiplier > 1) {
-				int memlimit_active = *(int*)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_ACTIVE);
-				if (memlimit_active != -1) {
-					*(int*)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_ACTIVE) = memlimit_active * jetsamMultiplier;
-				}
-				int memlimit_inactive = *(int*)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_INACTIVE);
-				if (memlimit_inactive != -1) {
-					*(int*)(attrStruct + POSIX_SPAWNATTR_OFF_MEMLIMIT_INACTIVE) = memlimit_inactive * jetsamMultiplier;
-				}
-			}
-		}
-	}
-
-	int r = -1;
-
-	if ((shouldInsertJBEnv && JBEnvAlreadyInsertedCount == 1) || (!shouldInsertJBEnv && JBEnvAlreadyInsertedCount == 0 && !hasSafeModeVariable)) {
-		// we're already good, just call orig
-		r = orig(envp);
-	}
-	else {
-		// the state we want to be in is not the state we are in right now
-
+	// Call original or modify env
+	int result;
+	if ((inject && hookInserted) || (!inject && !hookInserted)) {
+		result = orig_call((char *const*)envp);
+	} else {
 		char **envc = envbuf_mutcopy((const char **)envp);
-
-		if (shouldInsertJBEnv) {
-			if (!systemHookAlreadyInserted) {
-				char newLibraryInsert[strlen(HOOK_DYLIB_PATH) + (existingLibraryInserts ? (strlen(existingLibraryInserts) + 1) : 0) + 1];
-				strcpy(newLibraryInsert, HOOK_DYLIB_PATH);
-				if (existingLibraryInserts) {
-					strcat(newLibraryInsert, ":");
-					strcat(newLibraryInsert, existingLibraryInserts);
-				}
-				envbuf_setenv(&envc, "DYLD_INSERT_LIBRARIES", newLibraryInsert);
-			}
+		if (inject && !hookInserted) {
+			char newVal[strlen(HOOK_DYLIB_PATH) + (existing ? strlen(existing)+1 : 0) + 1];
+			strcpy(newVal, HOOK_DYLIB_PATH);
+			if (existing) { strcat(newVal, ":"); strcat(newVal, existing); }
+			envbuf_setenv(&envc, "DYLD_INSERT_LIBRARIES", newVal);
+		} else if (!inject && hookInserted) {
+			envbuf_unsetenv(&envc, "DYLD_INSERT_LIBRARIES");
 		}
-		else {
-			if (systemHookAlreadyInserted && existingLibraryInserts) {
-				if (!strcmp(existingLibraryInserts, HOOK_DYLIB_PATH)) {
-					envbuf_unsetenv(&envc, "DYLD_INSERT_LIBRARIES");
-				}
-				else {
-					char *newLibraryInsert = malloc(strlen(existingLibraryInserts)+1);
-					newLibraryInsert[0] = '\0';
+		envbuf_unsetenv(&envc, "_SafeMode");
+		envbuf_unsetenv(&envc, "_MSSafeMode");
 
-					__block bool first = true;
-					string_enumerate_components(existingLibraryInserts, ":", ^(const char *existingLibraryInsert, bool *stop) {
-						if (strcmp(existingLibraryInsert, HOOK_DYLIB_PATH) != 0) {
-							if (first) {
-								strcpy(newLibraryInsert, existingLibraryInsert);
-								first = false;
-							}
-							else {
-								strcat(newLibraryInsert, ":");
-								strcat(newLibraryInsert, existingLibraryInsert);
-							}
-						}
-					});
-					envbuf_setenv(&envc, "DYLD_INSERT_LIBRARIES", newLibraryInsert);
-
-					free(newLibraryInsert);
-				}
-			}
-			envbuf_unsetenv(&envc, "_SafeMode");
-			envbuf_unsetenv(&envc, "_MSSafeMode");
-		}
-
-		r = orig(envc);
-
+		result = orig_call((char *const*)envc);
 		envbuf_free(envc);
 	}
-
-	return r;
+	return result;
 }
 
-int posix_spawn_hook_shared(pid_t *restrict pid, 
-					   const char *restrict path,
+int posix_spawn_hook_shared(pid_t *pid,
+			 const char *path,
 			 struct _posix_spawn_args_desc *desc,
-						  	    char *const argv[restrict],
-					   			char *const envp[restrict],
-					   				  void *orig,
-					   				  int (*trust_binary)(const char *path),
-					   				  int (*set_process_debugged)(uint64_t pid, bool fullyDebugged),
-					   				 double jetsamMultiplier)
-{
-	int (*posix_spawn_orig)(pid_t *restrict, const char *restrict, struct _posix_spawn_args_desc *, char *const[restrict], char *const[restrict]) = orig;
-
-	int r = spawn_exec_hook_common(path, argv, envp, desc, trust_binary, jetsamMultiplier, ^int(char *const envp_patched[restrict]) {
-		return posix_spawn_orig(pid, path, desc, argv, envp_patched);
-	});
-
+			 char *const argv[restrict],
+			 char *const envp[restrict],
+			 void *orig,
+			 int (*trust_binary)(const char *),
+			 int (*set_process_debugged)(uint64_t, bool),
+			 double jetsamMultiplier) {
+	int (*orig_spawn)(pid_t*, const char*, struct _posix_spawn_args_desc*, char*const[], char*const[]) = orig;
+	int r = spawn_exec_hook_common(path, argv, envp, desc, trust_binary, jetsamMultiplier,
+								^(char *const envp2[]){ return orig_spawn(pid, path, desc, argv, envp2); });
 	if (r == 0 && pid && desc) {
 		posix_spawnattr_t attr = desc->attrp;
-		short flags = 0;
-		if (posix_spawnattr_getflags(&attr, &flags) == 0) {
-			if (flags & POSIX_SPAWN_START_SUSPENDED) {
-				// If something spawns a process as suspended, ensure mapping invalid pages in it is possible
-				// Normally it would only be possible after systemhook.dylib enables it
-				// Fixes Frida issues
-				int r = set_process_debugged(*pid, false);
-			}
+		short flags;
+		if (posix_spawnattr_getflags(&attr, &flags) == 0 && (flags & POSIX_SPAWN_START_SUSPENDED)) {
+			set_process_debugged(*pid, false);
 		}
 	}
-
 	return r;
 }
 
 int execve_hook_shared(const char *path,
-					   char *const argv[],
-					   char *const envp[],
-			 				 void *orig,
-			 				 int (*trust_binary)(const char *path))
-{
-	int (*execve_orig)(const char *, char *const[], char *const[]) = orig;
-
-	int r = spawn_exec_hook_common(path, argv, envp, NULL, trust_binary, 0, ^int(char *const envp_patched[restrict]){
-		return execve_orig(path, argv, envp_patched);
-	});
-
-	return r;
+		 char *const argv[],
+		 char *const envp[],
+		 void *orig,
+		 int (*trust_binary)(const char *)) {
+	int (*orig_execve)(const char*, char*const[], char*const[]) = orig;
+	return spawn_exec_hook_common(path, argv, envp, NULL, trust_binary, 0,
+						^(char *const envp2[]){ return orig_execve(path, argv, envp2); });
 }
