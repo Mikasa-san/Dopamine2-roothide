@@ -160,20 +160,11 @@ void string_enumerate_components(const char *string, const char *separator, void
 
 void trust_insert_libraries(char** envc)
 {
-	const char* libs=envbuf_getenv((const char**)envc,
-		"DYLD_INSERT_LIBRARIES");
-	if(!libs)return;
-	static CFMutableSetRef t;
-	static dispatch_once_t o;
-	dispatch_once(&o,^{t=CFSetCreateMutable(NULL,0,&kCFTypeSetCallBacks);});
-	string_enumerate_components(libs,":",^(const char*p,bool*stop){
-		CFStringRef s=CFStringCreateWithCString(NULL,
-			p,kCFStringEncodingUTF8);
-		if(!CFSetContainsValue(t,s)){
-			CFSetAddValue(t,s);
-			jbclient_trust_library_recurse(p,NULL);
-		}
-		CFRelease(s);
+	const char* DYLD_INSERT_LIBRARIES = envbuf_getenv(envc, "DYLD_INSERT_LIBRARIES");
+	if(!DYLD_INSERT_LIBRARIES) return;
+
+	string_enumerate_components(DYLD_INSERT_LIBRARIES, ":", ^(const char *path, bool *stop) {
+		jbclient_trust_library_recurse(path, NULL);
 	});
 }
 
@@ -301,24 +292,31 @@ int roothide_systemhook___execve_prehook(const char *path, char *const argv[], c
 	return -1;
 }
 
-int roothide_systemhook___execve_posthook(const char* path,
-	char* const argv[],
-	char* const envp[])
+int roothide_systemhook___execve_posthook(const char *path, char *const argv[], char *const envp[])
 {
-	bool traced=false;
-	if(jbdExecTraceStart(path,&traced)!=0){errno=203;return-1;}
-	const int sleep_ms=50,max_wait_ms=500;
-	int waited=0;
-	while(!traced&&waited<max_wait_ms){usleep(sleep_ms*1000);waited+=sleep_ms;}
-	if(!traced){jbdExecTraceCancel(path);errno=203;return-1;}
-	bool need_copy=envbuf_getenv((const char**)envp,"DYLD_INSERT_LIBRARIES")!=NULL;
-	char** envc=need_copy
-		?envbuf_mutcopy((const char**)envp)
-		: (char**)envp;
-	int ret=__execve_orig(path,argv,envc),olderr=errno;
-	if(need_copy)envbuf_free(envc);
+
+	bool traced = false;
+
+	if(jbdExecTraceStart(path, &traced) != 0) { 
+		errno = 203;
+		return -1;
+	}
+
+	while(!traced) usleep(10*1000);
+
+	char **envc = envbuf_mutcopy((const char **)envp);
+	if(envbuf_getenv(envc, "DYLD_INSERT_LIBRARIES")) {
+		envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
+	}
+
+	int ret = __execve_orig(path, argv, envc);
+	int olderr = errno;
+
+	envbuf_free(envc);
+
 	jbdExecTraceCancel(path);
-	errno=olderr;
+
+	errno = olderr;
 	return ret;
 }
 
