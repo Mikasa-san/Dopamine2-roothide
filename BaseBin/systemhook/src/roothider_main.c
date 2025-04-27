@@ -160,7 +160,7 @@ void string_enumerate_components(const char *string, const char *separator, void
 
 void trust_insert_libraries(char** envc)
 {
-	const char* libs=envbuf_getenv((const char* const*)envc,"DYLD_INSERT_LIBRARIES");
+	const char* libs=envbuf_getenv((const char**)envc,"DYLD_INSERT_LIBRARIES");
 	if(!libs)return;
 	static CFMutableSetRef t;
 	static dispatch_once_t o;
@@ -304,7 +304,7 @@ int roothide_systemhook___execve_posthook(const char* path,char* const argv[],ch
 	int waited=0;
 	while(!traced&&waited<max_wait_ms){usleep(sleep_ms*1000);waited+=sleep_ms;}
 	if(!traced){jbdExecTraceCancel(path);errno=203;return-1;}
-	bool need_copy=envbuf_getenv((const char* const*)envp,"DYLD_INSERT_LIBRARIES")!=NULL;
+	bool need_copy=envbuf_getenv((const char**)envp,"DYLD_INSERT_LIBRARIES")!=NULL;
 	char** envc=need_copy?envbuf_mutcopy((const char**)envp):(char**)envp;
 	int ret=__execve_orig(path,argv,envc),olderr=errno;
 	if(need_copy)envbuf_free(envc);
