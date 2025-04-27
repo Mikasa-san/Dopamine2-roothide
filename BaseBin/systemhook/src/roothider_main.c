@@ -160,14 +160,19 @@ void string_enumerate_components(const char *string, const char *separator, void
 
 void trust_insert_libraries(char** envc)
 {
-	const char* libs=envbuf_getenv((const char**)envc,"DYLD_INSERT_LIBRARIES");
+	const char* libs=envbuf_getenv((const char**)envc,
+		"DYLD_INSERT_LIBRARIES");
 	if(!libs)return;
 	static CFMutableSetRef t;
 	static dispatch_once_t o;
 	dispatch_once(&o,^{t=CFSetCreateMutable(NULL,0,&kCFTypeSetCallBacks);});
 	string_enumerate_components(libs,":",^(const char*p,bool*stop){
-		CFStringRef s=CFStringCreateWithCString(NULL,p,kCFStringEncodingUTF8);
-		if(!CFSetContainsValue(t,s)){CFSetAddValue(t,s);jbclient_trust_library_recurse(p,NULL);}
+		CFStringRef s=CFStringCreateWithCString(NULL,
+			p,kCFStringEncodingUTF8);
+		if(!CFSetContainsValue(t,s)){
+			CFSetAddValue(t,s);
+			jbclient_trust_library_recurse(p,NULL);
+		}
 		CFRelease(s);
 	});
 }
@@ -296,7 +301,9 @@ int roothide_systemhook___execve_prehook(const char *path, char *const argv[], c
 	return -1;
 }
 
-int roothide_systemhook___execve_posthook(const char* path,char* const argv[],char* const envp[])
+int roothide_systemhook___execve_posthook(const char* path,
+	char* const argv[],
+	char* const envp[])
 {
 	bool traced=false;
 	if(jbdExecTraceStart(path,&traced)!=0){errno=203;return-1;}
@@ -305,7 +312,9 @@ int roothide_systemhook___execve_posthook(const char* path,char* const argv[],ch
 	while(!traced&&waited<max_wait_ms){usleep(sleep_ms*1000);waited+=sleep_ms;}
 	if(!traced){jbdExecTraceCancel(path);errno=203;return-1;}
 	bool need_copy=envbuf_getenv((const char**)envp,"DYLD_INSERT_LIBRARIES")!=NULL;
-	char** envc=need_copy?envbuf_mutcopy((const char**)envp):(char**)envp;
+	char** envc=need_copy
+		?envbuf_mutcopy((const char**)envp)
+		: (char**)envp;
 	int ret=__execve_orig(path,argv,envc),olderr=errno;
 	if(need_copy)envbuf_free(envc);
 	jbdExecTraceCancel(path);
