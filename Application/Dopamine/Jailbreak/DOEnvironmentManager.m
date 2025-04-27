@@ -1,10 +1,3 @@
-//
-//  EnvironmentManager.m
-//  Dopamine
-//
-//  Created by Lars Fröder on 10.01.24.
-//
-
 #import "DOEnvironmentManager.h"
 
 #import <sys/sysctl.h>
@@ -127,12 +120,10 @@ int reboot3(uint64_t flags, ...);
 
 - (BOOL)isJailbroken
 {
-/************** roothide specific ***********/
+
     if(!jbclient_roothide_jailbroken())
         return NO;
-/************** roothide specific ********/
 
-    
     static BOOL jailbroken = NO;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
@@ -173,7 +164,7 @@ int reboot3(uint64_t flags, ...);
         jbclient_root_set_mac_label(1, labelBackup, NULL);
     }
     else {
-        // Hope that we are already unsandboxed
+
         unsandboxBlock();
     }
 }
@@ -193,7 +184,7 @@ int reboot3(uint64_t flags, ...);
     if (ur == 0 && gr == 0) {
         rootBlock();
     }
-    
+
     if (gr == 0 && orgGroup != 0) setgid(orgGroup);
     if (ur == 0 && orgUser != 0) seteuid(orgUser);
 }
@@ -201,7 +192,7 @@ int reboot3(uint64_t flags, ...);
 - (int)runTrollStoreAction:(NSString *)action
 {
     if (![self isInstalledThroughTrollStore]) return -1;
-    
+
     uint32_t selfPathSize = PATH_MAX;
     char selfPath[selfPathSize];
     _NSGetExecutablePath(selfPath, &selfPathSize);
@@ -221,7 +212,7 @@ int reboot3(uint64_t flags, ...);
         }];
         if (r == 0) {
             if (cmd_wait_for_exit(pid) != 0) {
-                // Fallback
+
                 [self runUnsandboxed:^{
                     killall("/usr/libexec/backboardd", SIGTERM);
                 }];
@@ -238,12 +229,7 @@ int reboot3(uint64_t flags, ...);
         [self runUnsandboxed:^{
             r = exec_cmd_suspended(&pid, JBROOT_PATH("/basebin/jbctl"), "reboot_userspace", NULL);
             if (r == 0) {
-                // the original plan was to have the process continue outside of this block
-                // unfortunately sandbox blocks kill aswell, so it's a bit racy but works
 
-                // we assume we leave this unsandbox block before the userspace reboot starts
-                // to avoid leaking the label, this seems to work in practice
-                // and even if it doesn't work, leaking the label is no big deal
                 kill(pid, SIGCONT);
             }
         }];
@@ -285,7 +271,6 @@ int reboot3(uint64_t flags, ...);
         }];
     }];
 }
-
 
 - (void)changeMobilePassword:(NSString *)newPassword
 {
@@ -386,7 +371,7 @@ int reboot3(uint64_t flags, ...);
     if (loaded) {
         [self setIDownloadEnabled:loaded needsUnsandbox:needsUnsandbox];
     }
-    
+
     void (^updateBlock)(void) = ^{
         if (loaded) {
             exec_cmd(JBROOT_PATH("/usr/bin/launchctl"), "load", JBROOT_PATH("/basebin/LaunchDaemons/com.opa334.Dopamine.idownloadd.plist"), NULL);
@@ -395,7 +380,7 @@ int reboot3(uint64_t flags, ...);
             exec_cmd(JBROOT_PATH("/usr/bin/launchctl"), "unload", JBROOT_PATH("/basebin/LaunchDaemons/com.opa334.Dopamine.idownloadd.plist"), NULL);
         }
     };
-    
+
     if (needsUnsandbox) {
         [self runAsRoot:^{
             [self runUnsandboxed:updateBlock];
@@ -404,7 +389,7 @@ int reboot3(uint64_t flags, ...);
     else {
         updateBlock();
     }
-    
+
     if (!loaded) {
         [self setIDownloadEnabled:loaded needsUnsandbox:needsUnsandbox];
     }
@@ -424,7 +409,7 @@ int reboot3(uint64_t flags, ...);
         if ([[NSFileManager defaultManager] fileExistsAtPath:kernelInApp]) {
             return kernelInApp;
         }
-        
+
         [[DOUIManager sharedInstance] sendLog:@"Downloading Kernel" debug:NO];
         NSString *kernelcachePath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/kernelcache"];
         if (![[NSFileManager defaultManager] fileExistsAtPath:kernelcachePath]) {
@@ -437,7 +422,7 @@ int reboot3(uint64_t flags, ...);
 - (BOOL)isPACBypassRequired
 {
     if (![self isArm64e]) return NO;
-    
+
     if (@available(iOS 15.2, *)) {
         return NO;
     }
@@ -459,7 +444,7 @@ int reboot3(uint64_t flags, ...);
             }
         }
     }
-    
+
     return false;
 }
 
@@ -485,7 +470,7 @@ int reboot3(uint64_t flags, ...);
     if (![self isJailbroken] && getuid() != 0) {
         int r = [self runTrollStoreAction:@"delete-bootstrap"];
         if (r != 0) {
-            // TODO: maybe handle error
+
         }
         return nil;
     }
@@ -499,7 +484,7 @@ int reboot3(uint64_t flags, ...);
         return error;
     }
     else {
-        // Let's hope for the best
+
         return [_bootstrapper deleteBootstrap];
     }
 }

@@ -59,7 +59,7 @@ uint64_t proc_self(void)
 	static dispatch_once_t onceToken;
 	dispatch_once(&onceToken, ^{
 		gSelfProc = proc_find(getpid());
-		// decrement ref count again, we assume proc_self will exist for the whole lifetime of this process
+
 		proc_rele(gSelfProc);
 	});
 	return gSelfProc;
@@ -141,15 +141,14 @@ uint64_t alloc_page_table_unassigned(void)
 	uint64_t allocatedPT = 0;
 	uint64_t pinfo_pa = 0;
 	while (true) {
-		// When we allocate the entire address range of an L2 block, we can assume ownership of the backing table
+
 		if (posix_memalign(&free_lvl2, L2_BLOCK_SIZE, L2_BLOCK_SIZE) != 0) {
 			printf("WARNING: Failed to allocate L2 page table address range\n");
 			return 0;
 		}
-		// Now, fault in one page to make the kernel allocate the page table for it
+
 		*(volatile uint64_t *)free_lvl2;
 
-		// Find the newly allocated page table
 		uint64_t lvl = PMAP_TT_L2_LEVEL;
 		allocatedPT = vtophys_lvl(ttep, (uint64_t)free_lvl2, &lvl, &tte_lvl2);
 
@@ -160,65 +159,20 @@ uint64_t alloc_page_table_unassigned(void)
 
 		uint16_t refCount = physread16(pinfo_pa);
 		if (refCount != 1) {
-			// Something is off, retry
+
 			free(free_lvl2);
 			continue;
 		}
 		break;
 	}
 
-	// Handle case where all entries in the level 2 table are 0 after we leak ours
-	// In that case, leak an allocation in the span of it to keep it alive
-	/*uint64_t lvl2Table = tte_lvl2 & ~PAGE_MASK;
-	uint64_t lvl2TableEntries[PAGE_SIZE / sizeof(uint64_t)];
-	physreadbuf(lvl2Table, lvl2TableEntries, PAGE_SIZE);
-	int freeIdx = -1;
-	for (int i = 0; i < (PAGE_SIZE / sizeof(uint64_t)); i++) {
-		uint64_t curPtr = lvl2Table + (sizeof(uint64_t) * i);
-		if (curPtr != tte_lvl2) {
-			if (lvl2TableEntries[i]) {
-				freeIdx = -1;
-				break;
-			}
-			else {
-				freeIdx = i;
-			}
-		}
-	}
-	if (freeIdx != -1) {
-		vm_address_t freeUserspace = ((uint64_t)free_lvl2 & ~L1_BLOCK_MASK) + (freeIdx * L2_BLOCK_SIZE);
-		if (vm_allocate(mach_task_self(), &freeUserspace, 0x4000, VM_FLAGS_FIXED) == 0) {
-			*(volatile uint8_t *)freeUserspace;
-		}
-	}*/
-
-	// Bump reference count of our allocated page table
 	physwrite16(pinfo_pa, 0x1337);
 
-	// Deallocate address range (our allocated page table will stay because we bumped it's reference count)
 	free(free_lvl2);
 
-	// Remove our allocated page table from it's original location (leak it)
 	physwrite64(tte_lvl2, 0);
 
-	// Ensure there is at least one entry in page table
-	// Attempts to prevent "pte is empty" panic
-	// Sometimes weird prefetches happen so this has to be a valid physical page to ensure those don't panic
-	// Disabled for now cause it causes super weird issues
-	//physwrite64(allocatedPT, kconstant(physBase) | PERM_TO_PTE(PERM_KRW_URW) | PTE_NON_GLOBAL | PTE_OUTER_SHAREABLE | PTE_LEVEL3_ENTRY);
-
-	// Reference count of new page table must be 0!
-	// original ref count is 1 because the table holds one PTE
-	// Our new PTEs are not part of the pmap layer though so refcount needs to be 0
 	physwrite16(pinfo_pa, 0);
-
-	// After we leaked the page table, the ledger still thinks it belongs to our process
-	// We need to remove it from there aswell so that the process doesn't get jetsam killed
-	// (This ended up more complicated than I thought, so I just disabled jetsam in launchd)
-	//uint64_t ledger = kread_ptr(pmap + koffsetof(pmap, ledger));
-	//uint64_t ledger_pa = kvtophys(ledger);
-	//int page_table_ledger = physread32(ledger_pa + koffsetof(_task_ledger_indices, page_table));
-	//physwrite32(ledger_pa + koffsetof(_task_ledger_indices, page_table), page_table_ledger - 1);
 
 	return allocatedPT;
 }
@@ -237,13 +191,8 @@ uint64_t pmap_alloc_page_table(uint64_t pmap, uint64_t va)
 
 	uint64_t ptdp_pa = kvtophys(ptdp);
 
-	// At this point the allocated page table is associated
-	// to the pmap of this process alongside the address it was allocated on
-	// We now need to replace the association with the context in which it will be used
 	physwrite64(ptdp_pa + koffsetof(pt_desc, pmap), pmap);
 
-	// On A14+ PT_INDEX_MAX is 4, for whatever reason
-	// However in practice, only the first slot is used...
 	for (uint64_t po = 0; po < vm_page_size; po += vm_real_kernel_page_size) {
 		physwrite64(ptdp_pa + koffsetof(pt_desc, va) + (po / vm_page_size), va + po);
 	}
@@ -269,10 +218,6 @@ int pmap_expand_range(uint64_t pmap, uint64_t vaStart, uint64_t size)
 			uint64_t pt3 = 0;
 			vtophys_lvl(ttep, curL2, &leafLevel, &pt3);
 			if (leafLevel == PMAP_TT_L3_LEVEL || i == l2Count) {
-				// i == l2Count: one extra cycle that this for loop takes
-				// We hit this block either if there was a mapping or at the end
-				// Alloc page tables for the current area (unmappedStart, unmappedSize) by running pmap_enter_options on every page
-				// And then running pmap_remove on the entire area while nested is true
 
 				for (uint64_t l2Off = 0; l2Off < unmappedSize; l2Off += L2_BLOCK_SIZE) {
 					kern_return_t kr = pmap_enter_options_addr(pmap, FAKE_PHYSPAGE_TO_MAP, unmappedStart + l2Off);
@@ -281,15 +226,12 @@ int pmap_expand_range(uint64_t pmap, uint64_t vaStart, uint64_t size)
 					}
 				}
 
-				// Set type to nested
 				physwrite8(kvtophys(pmap + koffsetof(pmap, type)), 3);
 
-				// Remove mapping (table will stay cause nested is set)
 				pmap_remove(pmap, unmappedStart, unmappedStart + unmappedSize);
 
-				// Change type back
 				physwrite8(kvtophys(pmap + koffsetof(pmap, type)), 0);
-				
+
 				unmappedStart = 0;
 				unmappedSize = 0;
 				continue;
@@ -349,15 +291,13 @@ int pmap_map_in(uint64_t pmap, uint64_t uaStart, uint64_t paStart, uint64_t size
 	uint64_t paL2Start = paStart & ~L2_BLOCK_MASK;
 	uint64_t l2Count = (((uaL2End - uaL2Start) - 1) / L2_BLOCK_SIZE) + 1;
 
-	// Sanity check: Ensure the entire area to be mapped in is not mapped to anything yet
 	for(uint64_t ua = uaStart; ua < uaEnd; ua += vm_real_kernel_page_size) {
 		uint64_t leafLevel = PMAP_TT_L3_LEVEL;
 		if (vtophys_lvl(ttep, ua, &leafLevel, NULL) != 0) {
 			return -1;
 		}
 		else {
-			// Performance improvement
-			// If there is no L1 / L2 mapping we can skip a whole bunch of addresses
+
 			if (leafLevel == PMAP_TT_L1_LEVEL) {
 				ua = (((ua + L1_BLOCK_SIZE) & ~L1_BLOCK_MASK) - vm_real_kernel_page_size);
 			}
@@ -367,18 +307,15 @@ int pmap_map_in(uint64_t pmap, uint64_t uaStart, uint64_t paStart, uint64_t size
 		}
 
 		if (vtophys(ttep, ua)) return -1;
-		// TODO: If all mappings match 1:1, maybe return 0 instead of -1?
+
 	}
 
-	// Allocate all page tables that need to be allocated
 	if (pmap_expand_range(pmap, uaStart, size) != 0) return -1;
-	
-	// Insert entries into L3 pages
+
 	for (uint64_t i = 0; i < l2Count; i++) {
 		uint64_t uaL2Cur = uaL2Start + (i * L2_BLOCK_SIZE);
 		uint64_t paL2Cur = paL2Start + (i * L2_BLOCK_SIZE);
 
-		// Create full table for this mapping
 		uint64_t tableToWrite[L2_BLOCK_COUNT];
 		for (int k = 0; k < L2_BLOCK_COUNT; k++) {
 			uint64_t curMappingPage = paL2Cur + (k * vm_real_kernel_page_size);
@@ -390,7 +327,6 @@ int pmap_map_in(uint64_t pmap, uint64_t uaStart, uint64_t paStart, uint64_t size
 			}
 		}
 
-		// Replace table with the entries we generated
 		uint64_t leafLevel = PMAP_TT_L2_LEVEL;
 		uint64_t level2Table = vtophys_lvl(ttep, uaL2Cur, &leafLevel, NULL);
 		if (!level2Table) return -2;
@@ -399,7 +335,6 @@ int pmap_map_in(uint64_t pmap, uint64_t uaStart, uint64_t paStart, uint64_t size
 
 	return 0;
 }
-
 
 #ifdef __arm64e__
 uint64_t pmap_find_main_binary_code_dir(uint64_t pmap)
@@ -477,13 +412,7 @@ int sign_kernel_thread(uint64_t proc, mach_port_t threadPort)
 uint64_t kpacda(uint64_t pointer, uint64_t modifier)
 {
 	if (gPrimitives.kexec && kgadget(pacda)) {
-		// |------- GADGET -------|
-		// | cmp x1, #0		      |
-		// | pacda x1, x9         |
-		// | str x9, [x8]         |
-		// | csel x9, xzr, x1, eq |
-		// | ret                  |
-		// |----------------------|
+
 		uint64_t output = 0;
 		uint64_t output_kernelVA = phystokv(vtophys(kread_ptr(pmap_self() + koffsetof(pmap, ttep)), (uint64_t)&output));
 		kRegisterState threadState = { 0 };
@@ -549,13 +478,13 @@ void proc_remove_msg_filter(uint64_t proc)
 		#define TFRO_FILTER_MSG                 0x00004000
 
 		if (koffsetof(proc_ro, t_flags_ro)) {
-			// iOS 16.1+
+
 			uint64_t proc_ro = kread_ptr(proc + koffsetof(proc, proc_ro));
 			uint32_t t_flags = kread32(proc_ro + koffsetof(proc_ro, t_flags_ro));
 			kwrite32(proc_ro + koffsetof(proc_ro, t_flags_ro), t_flags & ~TFRO_FILTER_MSG);
 		}
 		else if (koffsetof(task, flags)) {
-			// iOS 16.0.x
+
 			uint64_t task = proc_task(proc);
 			uint32_t t_flags = kread32(task + koffsetof(task, flags));
 			kwrite32(task + koffsetof(task, flags), t_flags & ~TFRO_FILTER_MSG);
@@ -596,8 +525,7 @@ int __exec_cmd_internal_va(bool suspended, bool root, bool waitForExit, pid_t *p
 
 	char **envToUse = envp;
 	if (!envToUse && getpid() != 1) {
-		// We NEVER want to pass launchd's environment to any process whatsoever
-		// This is because, amongst other things, it has DYLD_INSERT_LIBRARIES set to launchdhook which is NO good
+
 		envToUse = environ;
 	}
 
@@ -720,14 +648,14 @@ void killall(const char *executablePath, int signal)
 		size_t size = sizeof(maxArgumentSize);
 		if (sysctl((int[]){ CTL_KERN, KERN_ARGMAX }, 2, &maxArgumentSize, &size, NULL, 0) == -1) {
 			perror("sysctl argument size");
-			maxArgumentSize = 4096; // Default
+			maxArgumentSize = 4096; 
 		}
 	}
 	int mib[3] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL};
 	struct kinfo_proc *info;
 	size_t length;
 	int count;
-	
+
 	if (sysctl(mib, 3, NULL, &length, NULL, 0) < 0)
 		return;
 	if (!(info = malloc(length)))
@@ -785,7 +713,6 @@ int libarchive_unarchive(const char *fileToExtract, const char *extractionPath)
 	int flags;
 	int r;
 
-	/* Select which attributes we want to restore. */
 	flags = ARCHIVE_EXTRACT_TIME;
 	flags |= ARCHIVE_EXTRACT_PERM;
 	flags |= ARCHIVE_EXTRACT_ACL;
@@ -816,7 +743,7 @@ int libarchive_unarchive(const char *fileToExtract, const char *extractionPath)
 			strlcat(outputPath, currentFile, PATH_MAX);
 
 			archive_entry_set_pathname(entry, outputPath);
-			
+
 			r = archive_write_header(ext, entry);
 			if (r < ARCHIVE_OK)
 					fprintf(stderr, "%s\n", archive_error_string(ext));
@@ -837,13 +764,10 @@ int libarchive_unarchive(const char *fileToExtract, const char *extractionPath)
 	archive_read_free(a);
 	archive_write_close(ext);
 	archive_write_free(ext);
-	
+
 	return 0;
 }
 
-
-// code from ktrw by Brandon Azad : https://github.com/googleprojectzero/ktrw
-// A worker thread for activity_thread that just spins.
 static void* worker_thread(void *arg)
 {
 	uint64_t end = *(uint64_t *)arg;
@@ -857,7 +781,6 @@ static void* worker_thread(void *arg)
 	return NULL;
 }
 
-// A thread to alternately spin and sleep.
 static void* activity_thread(void *arg)
 {
 	volatile uint64_t *runCount = arg;
@@ -866,7 +789,7 @@ static void* activity_thread(void *arg)
 	const unsigned milliseconds = 40;
 	const unsigned worker_count = 10;
 	while (*runCount != 0) {
-		// Spin for one period on multiple threads.
+
 		uint64_t start = mach_absolute_time();
 		uint64_t end = start + milliseconds * 1000 * 1000 * tb.denom / tb.numer;
 		pthread_t worker[worker_count];
@@ -877,7 +800,7 @@ static void* activity_thread(void *arg)
 		for (unsigned i = 0; i < worker_count; i++) {
 			pthread_join(worker[i], NULL);
 		}
-		// Sleep for one period.
+
 		usleep(milliseconds * 1000);
 	}
 	return NULL;
@@ -938,7 +861,7 @@ int convert_hex_string_to_data(const char *string, void *outBuf)
 char *boot_manifest_hash(void)
 {
 	static char *gBuf = NULL;
-	
+
 	static dispatch_once_t onceToken;
 	dispatch_once(&onceToken, ^{
 		io_registry_entry_t registryEntry = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/chosen");

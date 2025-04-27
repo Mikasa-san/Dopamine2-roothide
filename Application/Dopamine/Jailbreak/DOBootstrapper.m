@@ -1,10 +1,3 @@
-//
-//  Bootstrapper.m
-//  Dopamine
-//
-//  Created by Lars Fröder on 09.01.24.
-//
-
 #import "DOBootstrapper.h"
 #import "DOEnvironmentManager.h"
 #import "DOUIManager.h"
@@ -29,15 +22,15 @@ static NSDictionary *gBundledPackages = @{
 
 struct hfs_mount_args {
 	char	*fspec;
-	uid_t	hfs_uid;		/* uid that owns hfs files (standard HFS only) */
-	gid_t	hfs_gid;		/* gid that owns hfs files (standard HFS only) */
-	mode_t	hfs_mask;		/* mask to be applied for hfs perms  (standard HFS only) */
-	uint32_t hfs_encoding;		/* encoding for this volume (standard HFS only) */
-	struct	timezone hfs_timezone;	/* user time zone info (standard HFS only) */
-	int		flags;			/* mounting flags, see below */
-	int	 journal_tbuffer_size;   /* size in bytes of the journal transaction buffer */
-	int		journal_flags;		  /* flags to pass to journal_open/create */
-	int		journal_disable;		/* don't use journaling (potentially dangerous) */
+	uid_t	hfs_uid;		
+	gid_t	hfs_gid;		
+	mode_t	hfs_mask;		
+	uint32_t hfs_encoding;		
+	struct	timezone hfs_timezone;	
+	int		flags;			
+	int	 journal_tbuffer_size;   
+	int		journal_flags;		  
+	int		journal_disable;		
 };
 
 NSString *const bootstrapErrorDomain = @"BootstrapErrorDomain";
@@ -59,28 +52,25 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 {
 	self = [super init];
 	if (self) {
-		/*NSURLSessionConfiguration *config = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:@"com.opa334.bootstrapper.background-session"];
-		_urlSession = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];*/
+
 	}
 	return self;
 }
 
 - (NSError *)decompressZstd:(NSString *)zstdPath toTar:(NSString *)tarPath
 {
-	// Open the input file for reading
+
 	FILE *input_file = fopen(zstdPath.fileSystemRepresentation, "rb");
 	if (input_file == NULL) {
 		return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedDecompressing userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to open input file %@: %s", zstdPath, strerror(errno)]}];
 	}
 
-	// Open the output file for writing
 	FILE *output_file = fopen(tarPath.fileSystemRepresentation, "wb");
 	if (output_file == NULL) {
 		fclose(input_file);
 		return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedDecompressing userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to open output file %@: %s", tarPath, strerror(errno)]}];
 	}
 
-	// Create a ZSTD decompression context
 	ZSTD_DCtx *dctx = ZSTD_createDCtx();
 	if (dctx == NULL) {
 		fclose(input_file);
@@ -88,7 +78,6 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 		return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedDecompressing userInfo:@{NSLocalizedDescriptionKey : @"Failed to create ZSTD decompression context"}];
 	}
 
-	// Create a buffer for reading input data
 	uint8_t *input_buffer = (uint8_t *) malloc(BUFFER_SIZE);
 	if (input_buffer == NULL) {
 		ZSTD_freeDCtx(dctx);
@@ -97,7 +86,6 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 		return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedDecompressing userInfo:@{NSLocalizedDescriptionKey : @"Failed to allocate input buffer"}];
 	}
 
-	// Create a buffer for writing output data
 	uint8_t *output_buffer = (uint8_t *) malloc(BUFFER_SIZE);
 	if (output_buffer == NULL) {
 		free(input_buffer);
@@ -107,7 +95,6 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 		return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedDecompressing userInfo:@{NSLocalizedDescriptionKey : @"Failed to allocate output buffer"}];
 	}
 
-	// Create a ZSTD decompression stream
 	ZSTD_inBuffer in = {0};
 	ZSTD_outBuffer out = {0};
 	ZSTD_DStream *dstream = ZSTD_createDStream();
@@ -120,7 +107,6 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 		return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedDecompressing userInfo:@{NSLocalizedDescriptionKey : @"Failed to create ZSTD decompression stream"}];
 	}
 
-	// Initialize the ZSTD decompression stream
 	size_t ret = ZSTD_initDStream(dstream);
 	if (ZSTD_isError(ret)) {
 		ZSTD_freeDStream(dstream);
@@ -131,18 +117,17 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 		fclose(output_file);
 		return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedDecompressing userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to initialize ZSTD decompression stream: %s", ZSTD_getErrorName(ret)]}];
 	}
-	
-	// Read and decompress the input file
+
 	size_t total_bytes_read = 0;
 	size_t total_bytes_written = 0;
 	size_t bytes_read;
 	size_t bytes_written;
 	while (1) {
-		// Read input data into the input buffer
+
 		bytes_read = fread(input_buffer, 1, BUFFER_SIZE, input_file);
 		if (bytes_read == 0) {
 			if (feof(input_file)) {
-				// End of input file reached, break out of loop
+
 				break;
 			} else {
 				ZSTD_freeDStream(dstream);
@@ -160,12 +145,11 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 		in.pos = 0;
 
 		while (in.pos < in.size) {
-			// Initialize the output buffer
+
 			out.dst = output_buffer;
 			out.size = BUFFER_SIZE;
 			out.pos = 0;
 
-			// Decompress the input data
 			ret = ZSTD_decompressStream(dstream, &out, &in);
 			if (ZSTD_isError(ret)) {
 				ZSTD_freeDStream(dstream);
@@ -177,7 +161,6 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 				return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedDecompressing userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to decompress input data: %s", ZSTD_getErrorName(ret)]}];
 			}
 
-			// Write the decompressed data to the output file
 			bytes_written = fwrite(output_buffer, 1, out.pos, output_file);
 			if (bytes_written != out.pos) {
 				ZSTD_freeDStream(dstream);
@@ -195,7 +178,6 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 		total_bytes_read += bytes_read;
 	}
 
-	// Clean up resources
 	ZSTD_freeDStream(dstream);
 	free(output_buffer);
 	free(input_buffer);
@@ -228,14 +210,14 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 - (BOOL)fileOrSymlinkExistsAtPath:(NSString *)path
 {
 	if ([[NSFileManager defaultManager] fileExistsAtPath:path]) return YES;
-	
+
 	NSDictionary<NSFileAttributeKey, id> *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
 	if (attributes) {
 		if (attributes[NSFileType] == NSFileTypeSymbolicLink) {
 			return YES;
 		}
 	}
-	
+
 	return NO;
 }
 
@@ -247,71 +229,10 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 		if (!createIntermediate) return [NSError errorWithDomain:bootstrapErrorDomain code:-1 userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed create %@->%@ symlink: Parent dir does not exists", path, destinationPath]}];
 		if (![[NSFileManager defaultManager] createDirectoryAtPath:parentPath withIntermediateDirectories:YES attributes:nil error:&error]) return error;
 	}
-	
+
 	[[NSFileManager defaultManager] createSymbolicLinkAtPath:path withDestinationPath:destinationPath error:&error];
 	return error;
 }
-
-/*
-- (BOOL)isPrivatePrebootMountedWritable
-{
-	struct statfs ppStfs;
-	statfs("/private/preboot", &ppStfs);
-	return !(ppStfs.f_flags & MNT_RDONLY);
-}
-
-- (int)remountPrivatePrebootWritable:(BOOL)writable
-{
-	struct statfs ppStfs;
-	int r = statfs("/private/preboot", &ppStfs);
-	if (r != 0) return r;
-	
-	uint32_t flags = MNT_UPDATE;
-	if (!writable) {
-		flags |= MNT_RDONLY;
-	}
-	struct hfs_mount_args mntargs =
-	{
-		.fspec = ppStfs.f_mntfromname,
-		.hfs_mask = 0,
-	};
-	return mount("apfs", "/private/preboot", flags, &mntargs);
-}
-
-- (NSError *)ensurePrivatePrebootIsWritable
-{
-	if (![self isPrivatePrebootMountedWritable]) {
-		int r = [self remountPrivatePrebootWritable:YES];
-		if (r != 0) {
-			return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedRemount userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Remounting /private/preboot as writable failed with error: %s", strerror(errno)]}];
-		}
-	}
-	return nil;
-}
-
-- (void)fixupPathPermissions
-{
-	// Ensure the following paths are owned by root:wheel and have permissions of 755:
-	// /private
-	// /private/preboot
-	// /private/preboot/UUID
-	// /private/preboot/UUID/dopamine-<UUID>
-	// /private/preboot/UUID/dopamine-<UUID>/procursus
-
-	NSString *tmpPath = JBROOT_PATH(@"/");
-	while (![tmpPath isEqualToString:@"/"]) {
-		struct stat s;
-		stat(tmpPath.fileSystemRepresentation, &s);
-		if (s.st_uid != 0 || s.st_gid != 0) {
-			chown(tmpPath.fileSystemRepresentation, 0, 0);
-		}
-		if ((s.st_mode & S_IRWXU) != 0755) {
-			chmod(tmpPath.fileSystemRepresentation, 0755);
-		}
-		tmpPath = [tmpPath stringByDeletingLastPathComponent];
-	}
-}
-*/
 
 - (void)patchBasebinDaemonPlist:(NSString *)plistPath
 {
@@ -354,62 +275,19 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 	return [NSURL URLWithString:[NSString stringWithFormat:@"https://apt.procurs.us/bootstraps/%@/bootstrap-ssh-iphoneos-arm64.tar.zst", [self bootstrapVersion]]];
 }
 
-/*- (void)downloadBootstrapWithCompletion:(void (^)(NSString *path, NSError *error))completion
-{
-	NSURL *bootstrapURL = [self bootstrapURL];
-	if (!bootstrapURL) {
-		completion(nil, [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedToGetURL userInfo:@{NSLocalizedDescriptionKey : @"Failed to obtain bootstrap URL"}]);
-		return;
-	}
-	
-	_downloadCompletionBlock = ^(NSURL * _Nullable location, NSError * _Nullable error) {
-		NSError *ourError;
-		if (error) {
-			ourError = [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedToDownload userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to download bootstrap: %@", error.localizedDescription]}];
-		}
-		completion(location.path, ourError);
-	};
-	
-	_bootstrapDownloadTask = [_urlSession downloadTaskWithURL:bootstrapURL];
-	[_bootstrapDownloadTask resume];
-}*/
-
-/*
-- (void)extractBootstrap:(NSString *)path withCompletion:(void (^)(NSError *))completion
-{
-	NSString *bootstrapTar = [@"/var/tmp" stringByAppendingPathComponent:@"bootstrap.tar"];
-	NSError *decompressionError = [self decompressZstd:path toTar:bootstrapTar];
-	if (decompressionError) {
-		completion(decompressionError);
-		return;
-	}
-	
-	decompressionError = [self extractTar:bootstrapTar toPath:@"/"];
-	if (decompressionError) {
-		completion(decompressionError);
-		return;
-	}
-	
-	[[NSData data] writeToFile:JBROOT_PATH(@"/.installed_dopamine") atomically:YES];
-	completion(nil);
-}
-*/
-
 #if 0
 - (void)prepareBootstrapWithCompletion:(void (^)(NSError *))completion
 {
 	[[DOUIManager sharedInstance] sendLog:@"Updating BaseBin" debug:NO];
 
-	// Ensure /private/preboot is mounted writable (Not writable by default on iOS <=15)
 	NSError *error = [self ensurePrivatePrebootIsWritable];
 	if (error) {
 		completion(error);
 		return;
 	}
-	
+
 	[self fixupPathPermissions];
-	
-	// Remove /var/jb as it might be wrong
+
 	if (![self deleteSymlinkAtPath:@"/var/jb" error:&error]) {
 		if ([[NSFileManager defaultManager] fileExistsAtPath:@"/var/jb"]) {
 			if (![[NSFileManager defaultManager] removeItemAtPath:@"/var/jb" error:&error]) {
@@ -422,8 +300,7 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 			return;
 		}
 	}
-	
-	// Clean up xinaA15 v1 leftovers if desired
+
 	if (![[NSFileManager defaultManager] fileExistsAtPath:@"/var/.keep_symlinks"]) {
 		NSArray *xinaLeftoverSymlinks = @[
 			@"/var/alternatives",
@@ -466,18 +343,18 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 			@"/var/lib",
 			@"/var/master.passwd"
 		];
-		
+
 		for (NSString *xinaLeftoverSymlink in xinaLeftoverSymlinks) {
 			[self deleteSymlinkAtPath:xinaLeftoverSymlink error:nil];
 		}
-		
+
 		for (NSString *xinaLeftoverFile in xinaLeftoverFiles) {
 			if ([[NSFileManager defaultManager] fileExistsAtPath:xinaLeftoverFile]) {
 				[[NSFileManager defaultManager] removeItemAtPath:xinaLeftoverFile error:nil];
 			}
 		}
 	}
-	
+
 	NSString *basebinPath = JBROOT_PATH(@"/basebin");
 	NSString *installedPath = JBROOT_PATH(@"/.installed_dopamine");
 	error = [self createSymlinkAtPath:@"/var/jb" toPath:JBROOT_PATH(@"/") createIntermediateDirectories:YES];
@@ -485,7 +362,7 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 		completion(error);
 		return;
 	}
-	
+
 	if ([[NSFileManager defaultManager] fileExistsAtPath:basebinPath]) {
 		if (![[NSFileManager defaultManager] removeItemAtPath:basebinPath error:&error]) {
 			completion([NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedExtracting userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed deleting existing basebin file with error: %@", error.localizedDescription]}]);
@@ -499,13 +376,13 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 	}
 	[self patchBasebinDaemonPlists];
 	[[NSFileManager defaultManager] removeItemAtPath:JBROOT_PATH(@"/basebin/basebin.tc") error:nil];
-	
+
 	void (^bootstrapFinishedCompletion)(NSError *) = ^(NSError *error){
 		if (error) {
 			completion(error);
 			return;
 		}
-		
+
 		NSString *defaultSources = @"Types: deb\n"
 			@"URIs: https://repo.chariz.com/\n"
 			@"Suites: ./\n"
@@ -526,7 +403,7 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 			@"Suites: ./\n"
 			@"Components:\n";
 		[defaultSources writeToFile:JBROOT_PATH(@"/etc/apt/sources.list.d/default.sources") atomically:NO encoding:NSUTF8StringEncoding error:nil];
-		
+
 		NSString *mobilePreferencesPath = JBROOT_PATH(@"/var/mobile/Library/Preferences");
 		if (![[NSFileManager defaultManager] fileExistsAtPath:mobilePreferencesPath]) {
 			NSDictionary<NSFileAttributeKey, id> *attributes = @{
@@ -536,48 +413,26 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 			};
 			[[NSFileManager defaultManager] createDirectoryAtPath:mobilePreferencesPath withIntermediateDirectories:YES attributes:attributes error:nil];
 		}
-		
+
 		JBFixMobilePermissions();
 
 		completion(nil);
 	};
-	
-	
+
 	BOOL needsBootstrap = ![[NSFileManager defaultManager] fileExistsAtPath:installedPath];
 	if (needsBootstrap) {
-		// First, wipe any existing content that's not basebin
+
 		for (NSURL *subItemURL in [[NSFileManager defaultManager] contentsOfDirectoryAtURL:[NSURL fileURLWithPath:JBROOT_PATH(@"/")] includingPropertiesForKeys:nil options:0 error:nil]) {
 			if (![subItemURL.lastPathComponent isEqualToString:@"basebin"]) {
 				[[NSFileManager defaultManager] removeItemAtURL:subItemURL error:nil];
 			}
 		}
-		
-		/*void (^bootstrapDownloadCompletion)(NSString *, NSError *) = ^(NSString *path, NSError *error) {
-			if (error) {
-				completion(error);
-				return;
-			}
-			[self extractBootstrap:path withCompletion:bootstrapFinishedCompletion];
-		};*/
-		
+
 		[[DOUIManager sharedInstance] sendLog:@"Extracting Bootstrap" debug:NO];
 
 		NSString *bootstrapZstdPath = [NSString stringWithFormat:@"%@/bootstrap_%@.tar.zst", [NSBundle mainBundle].bundlePath, [self bootstrapVersion]];
 		[self extractBootstrap:bootstrapZstdPath withCompletion:bootstrapFinishedCompletion];
 
-		/*NSString *documentsCandidate = @"/var/mobile/Documents/bootstrap.tar.zstd";
-		NSString *bundleCandidate = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"bootstrap.tar.zstd"];
-		// Check if the user provided a bootstrap
-		if ([[NSFileManager defaultManager] fileExistsAtPath:documentsCandidate]) {
-			bootstrapDownloadCompletion(documentsCandidate, nil);
-		}
-		else if ([[NSFileManager defaultManager] fileExistsAtPath:bundleCandidate]) {
-			bootstrapDownloadCompletion(bundleCandidate, nil);
-		}
-		else {
-			[[DOUIManager sharedInstance] sendLog:@"Downloading Bootstrap" debug:NO];
-			[self downloadBootstrapWithCompletion:bootstrapDownloadCompletion];
-		}*/
 	}
 	else {
 		bootstrapFinishedCompletion(nil);
@@ -591,7 +446,7 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 		return exec_cmd_trusted(JBROOT_PATH("/usr/bin/dpkg"), "-i", packagePath.fileSystemRepresentation, NULL);
 	}
 	else {
-		// idk why but waitpid sometimes fails and this returns -1, so we just ignore the return value
+
 		exec_cmd(JBROOT_PATH("/basebin/jbctl"), "internal", "install_pkg", packagePath.fileSystemRepresentation, NULL);
 		return 0;
 	}
@@ -606,7 +461,7 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 {
 	NSString *dpkgStatus = [NSString stringWithContentsOfFile:JBROOT_PATH(@"/var/lib/dpkg/status") encoding:NSUTF8StringEncoding error:nil];
 	NSString *packageStartLine = [NSString stringWithFormat:@"Package: %@", identifier];
-	
+
 	NSArray *packageInfos = [dpkgStatus componentsSeparatedByString:@"\n\n"];
 	for (NSString *packageInfo in packageInfos) {
 		if ([packageInfo hasPrefix:packageStartLine]) {
@@ -640,89 +495,19 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 {
 	NSString *bundledVersion = gBundledPackages[identifier];
 	if (!bundledVersion) return NO;
-	
+
 	NSString *installedVersion = [self installedVersionForPackageWithIdentifier:identifier];
 	if (!installedVersion) return YES;
-	
+
 	return [installedVersion numericalVersionRepresentation] < [bundledVersion numericalVersionRepresentation];
 }
-
-/*
-- (NSError *)finalizeBootstrap
-{
-	// Initial setup on first jailbreak
-	if ([[NSFileManager defaultManager] fileExistsAtPath:JBROOT_PATH(@"/prep_bootstrap.sh")]) {
-		[[DOUIManager sharedInstance] sendLog:@"Finalizing Bootstrap" debug:NO];
-		int r = exec_cmd_trusted(JBROOT_PATH("/bin/sh"), JBROOT_PATH("/prep_bootstrap.sh"), NULL);
-		if (r != 0) {
-			return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"prep_bootstrap.sh returned %d\n", r]}];
-		}
-		
-		NSError *error = [self installPackageManagers];
-		if (error) return error;
-	}
-	
-	BOOL shouldInstallLibroot = [self shouldInstallPackage:@"libroot-dopamine"];
-	BOOL shouldInstallLibkrw = [self shouldInstallPackage:@"libkrw0-dopamine"];
-	BOOL shouldInstallBasebinLink = [self shouldInstallPackage:@"dopamine-basebin-link"];
-	
-	if (shouldInstallLibroot || shouldInstallLibkrw || shouldInstallBasebinLink) {
-		[[DOUIManager sharedInstance] sendLog:@"Updating Bundled Packages" debug:NO];
-		if (shouldInstallLibroot) {
-			NSString *librootPath = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"libroot.deb"];
-			int r = [self installPackage:librootPath];
-			if (r != 0) return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install libroot: %d\n", r]}];
-		}
-		
-		if (shouldInstallLibkrw) {
-			NSString *libkrwPath = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"libkrw-dopamine.deb"];
-			int r = [self installPackage:libkrwPath];
-			if (r != 0) return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install the libkrw plugin: %d\n", r]}];
-		}
-		
-		if (shouldInstallBasebinLink) {
-			// Clean symlinks from earlier Dopamine versions
-			if (![self fileOrSymlinkExistsAtPath:JBROOT_PATH(@"/usr/bin/opainject")]) {
-				[[NSFileManager defaultManager] removeItemAtPath:JBROOT_PATH(@"/usr/bin/opainject") error:nil];
-			}
-			if (![self fileOrSymlinkExistsAtPath:JBROOT_PATH(@"/usr/bin/jbctl")]) {
-				[[NSFileManager defaultManager] removeItemAtPath:JBROOT_PATH(@"/usr/bin/jbctl") error:nil];
-			}
-			if (![self fileOrSymlinkExistsAtPath:JBROOT_PATH(@"/usr/lib/libjailbreak.dylib")]) {
-				[[NSFileManager defaultManager] removeItemAtPath:JBROOT_PATH(@"/usr/lib/libjailbreak.dylib") error:nil];
-			}
-			if (![self fileOrSymlinkExistsAtPath:JBROOT_PATH(@"/usr/bin/libjailbreak.dylib")]) {
-				// Yes this exists >.< was a typo
-				[[NSFileManager defaultManager] removeItemAtPath:JBROOT_PATH(@"/usr/bin/libjailbreak.dylib") error:nil];
-			}
-			
-			NSString *basebinLinkPath = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"basebin-link.deb"];
-			int r = [self installPackage:basebinLinkPath];
-			if (r != 0) return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install basebin link: %d\n", r]}];
-		}
-	}
-
-	return nil;
-}
-
-- (NSError *)deleteBootstrap
-{
-	NSError *error = [self ensurePrivatePrebootIsWritable];
-	if (error) return error;
-	NSString *path = [[NSString stringWithUTF8String:gSystemInfo.jailbreakInfo.rootPath] stringByDeletingLastPathComponent];
-	[[NSFileManager defaultManager] removeItemAtPath:path error:&error];
-	if (error) return error;
-	[[NSFileManager defaultManager] removeItemAtPath:@"/var/jb" error:nil];
-	return error;
-}
-*/
 
 - (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask didWriteData:(int64_t)bytesWritten totalBytesWritten:(int64_t)totalBytesWritten totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite
 {
 	if (downloadTask == _bootstrapDownloadTask) {
 		NSString *sizeString = [NSByteCountFormatter stringFromByteCount:totalBytesWritten countStyle:NSByteCountFormatterCountStyleFile];
 		NSString *writtenBytesString = [NSByteCountFormatter stringFromByteCount:totalBytesExpectedToWrite countStyle:NSByteCountFormatterCountStyleFile];
-		
+
 		[[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:@"Downloading Bootstrap (%@/%@)", sizeString, writtenBytesString] debug:NO update:YES];
 	}
 }
@@ -739,18 +524,13 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 
 @end
 
-
-/************************* roothide specific *******************/
-
-////////////////////////
 uint64_t jbrand_new();
 uint64_t jbrand_current();
 int is_jbroot_name(char* name);
 NSString* find_jbroot(BOOL force);
-////////////////////////////////////////
+
 NSString* jbrootPrefix(NSString *path);
 NSString* rootfsPrefix(NSString* path);
-///////////////////////////////////////////////////////
 
 @implementation DOBootstrapper(roothide)
 
@@ -774,18 +554,18 @@ int is_jbroot_name(char* name)
 {
 	if(strlen(name) != (sizeof(JB_ROOT_PREFIX)-1+JB_RAND_LENGTH))
 		return 0;
-	
+
 	if(strncmp(name, JB_ROOT_PREFIX, sizeof(JB_ROOT_PREFIX)-1) != 0)
 		return 0;
-	
+
 	char* endp=NULL;
 	uint64_t value = strtoull(name+sizeof(JB_ROOT_PREFIX)-1, &endp, 16);
 	if(!endp || *endp!='\0')
 		return 0;
-	
+
 	if(!is_jbrand_value(value))
 		return 0;
-	
+
 	return 1;
 }
 
@@ -793,18 +573,18 @@ uint64_t resolve_jbrand_value(const char* name)
 {
 	if(strlen(name) != (sizeof(JB_ROOT_PREFIX)-1+JB_RAND_LENGTH))
 		return 0;
-	
+
 	if(strncmp(name, JB_ROOT_PREFIX, sizeof(JB_ROOT_PREFIX)-1) != 0)
 		return 0;
-	
+
 	char* endp=NULL;
 	uint64_t value = strtoull(name+sizeof(JB_ROOT_PREFIX)-1, &endp, 16);
 	if(!endp || *endp!='\0')
 		return 0;
-	
+
 	if(!is_jbrand_value(value))
 		return 0;
-	
+
 	return value;
 }
 
@@ -816,7 +596,7 @@ NSString* find_jbroot(BOOL force)
 	}
 	@synchronized(@"find_jbroot_lock")
 	{
-		//jbroot path may change when re-randomize it
+
 		NSString * jbroot = nil;
 		NSArray *subItems = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"/var/containers/Bundle/Application/" error:nil];
 		for (NSString *subItem in subItems) {
@@ -831,7 +611,7 @@ NSString* find_jbroot(BOOL force)
 	}
 	return cached_jbroot;
 }
-////////////////////////////////////////////
+
 uint64_t jbrand_current()
 {
 	NSString* jbroot = find_jbroot(NO);
@@ -845,7 +625,7 @@ NSString* jbrootPrefix(NSString *path)
 		return path;
 	}
 	NSString* jbroot = find_jbroot(NO);
-	assert(jbroot != NULL); //to avoid [nil stringByAppendingString:
+	assert(jbroot != NULL); 
 	return [jbroot stringByAppendingPathComponent:path];
 }
 
@@ -856,62 +636,61 @@ NSString* rootfsPrefix(NSString* path)
 	}
 	return [@"/rootfs/" stringByAppendingPathComponent:path];
 }
-/////////////////////////////////////////////////////////////////////
 
 #define DOPAMINE_INSTALL_VERSION	2
 
 #define DEFAULT_SOURCES "\
 Types: deb\n\
-URIs: https://siieo.github.io/roothide/\n\
+URIs: https:
 Suites: ./\n\
 Components:\n\
 \n\
 Types: deb\n\
-URIs: https://repo.chariz.com/\n\
+URIs: https:
 Suites: ./\n\
 Components:\n\
 \n\
 Types: deb\n\
-URIs: https://havoc.app/\n\
+URIs: https:
 Suites: ./\n\
 Components:\n\
 \n\
 Types: deb\n\
-URIs: http://apt.thebigboss.org/repofiles/cydia/\n\
+URIs: http:
 Suites: stable\n\
 Components: main\n\
 \n\
 Types: deb\n\
-URIs: https://roothide.github.io/\n\
+URIs: https:
 Suites: ./\n\
 Components:\n\
 \n\
 Types: deb\n\
-URIs: https://roothide.github.io/procursus\n\
+URIs: https:
 Suites: iphoneos-arm64e/%d\n\
 Components: main\n\
 "
 
 #define ALT_SOURCES "\
 Types: deb\n\
-URIs: https://iosjb.top/\n\
+URIs: https:
 Suites: ./\n\
 Components:\n\
 \n\
 Types: deb\n\
-URIs: https://iosjb.top/procursus\n\
+URIs: https:
 Suites: iphoneos-arm64e/%d\n\
 Components: main\n\
 "
 
 #define ZEBRA_SOURCES "\
 # Zebra Sources List\n\
-deb https://getzbra.com/repo/ ./\n\
-deb https://repo.chariz.com/ ./\n\
-deb https://siieo.github.io/roothide/ ./\n\
-deb https://havoc.app/ ./\n\
-deb https://roothide.github.io/ ./\n\
-deb https://roothide.github.io/procursus iphoneos-arm64e/%d main\n\
+deb https:
+deb https:
+deb https:
+deb https:
+deb https:
+deb https:
 \n\
 "
 
@@ -919,7 +698,6 @@ int getCFMajorVersion(void)
 {
 	return ((int)kCFCoreFoundationVersionNumber / 100) * 100;
 }
-/////////////////////////////////////////////////////////////////////
 
 #define STRAPLOG(...)   [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:@__VA_ARGS__] debug:YES];
 #define ASSERT(...)	 do{if(!(__VA_ARGS__)) {completion([NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedExtracting userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"ABORT: %s (%d): %s", __FILE_NAME__, __LINE__, #__VA_ARGS__]}]);return -1;}} while(0)
@@ -927,22 +705,21 @@ int getCFMajorVersion(void)
 -(int) buildPackageSources:(void (^)(NSError *))completion
 {
 	NSFileManager* fm = NSFileManager.defaultManager;
-	
+
 	ASSERT([[NSString stringWithFormat:@(DEFAULT_SOURCES), getCFMajorVersion()] writeToFile:jbrootPrefix(@"/etc/apt/sources.list.d/default.sources") atomically:YES encoding:NSUTF8StringEncoding error:nil]);
-	
-	//Users in some regions seem to be unable to access github.io
+
 	if([NSLocale.currentLocale.countryCode isEqualToString:@"CN"]) {
 		ASSERT([[NSString stringWithFormat:@(ALT_SOURCES), getCFMajorVersion()] writeToFile:jbrootPrefix(@"/etc/apt/sources.list.d/sileo.sources") atomically:YES encoding:NSUTF8StringEncoding error:nil]);
 	}
-	
+
 	if(![fm fileExistsAtPath:jbrootPrefix(@"/var/mobile/Library/Application Support/xyz.willy.Zebra")])
 	{
 		NSDictionary* attr = @{NSFilePosixPermissions:@(0755), NSFileOwnerAccountID:@(501), NSFileGroupOwnerAccountID:@(501)};
 		ASSERT([fm createDirectoryAtPath:jbrootPrefix(@"/var/mobile/Library/Application Support/xyz.willy.Zebra") withIntermediateDirectories:YES attributes:attr error:nil]);
 	}
-	
+
 	ASSERT([[NSString stringWithFormat:@(ZEBRA_SOURCES), getCFMajorVersion()] writeToFile:jbrootPrefix(@"/var/mobile/Library/Application Support/xyz.willy.Zebra/sources.list") atomically:YES encoding:NSUTF8StringEncoding error:nil]);
-	
+
 	return 0;
 }
 
@@ -951,51 +728,49 @@ int getCFMajorVersion(void)
 	[[DOUIManager sharedInstance] sendLog:@"Extracting Bootstrap" debug:NO];
 
 	NSFileManager* fm = NSFileManager.defaultManager;
-	
+
 	NSString* jbroot_path = installPath;
-	
+
 	ASSERT(mkdir(jbroot_path.fileSystemRepresentation, 0755) == 0);
 	ASSERT(chown(jbroot_path.fileSystemRepresentation, 0, 0) == 0);
 
-	find_jbroot(YES); //refresh
-	
-	//jbrootPrefix() and jbrand_current() available now
-	
+	find_jbroot(YES); 
+
 	NSString* bootstrapZstFile = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:
 								  [NSString stringWithFormat:@"bootstrap_%d.tar.zst", getCFMajorVersion()]];
 
 	ASSERT([fm fileExistsAtPath:bootstrapZstFile]);
-	
+
 	NSString* bootstrapTarFile = [NSTemporaryDirectory() stringByAppendingPathComponent:@"bootstrap.tar"];
 	if([fm fileExistsAtPath:bootstrapTarFile])
 		ASSERT([fm removeItemAtPath:bootstrapTarFile error:nil]);
-	
+
 	NSError* error = [self decompressZstd:bootstrapZstFile toTar:bootstrapTarFile];
 	if(error) {
 		completion(error);
 		return -1;
 	}
-	
+
 	NSError* decompressionError = [self extractTar:bootstrapTarFile toPath:jbroot_path];
 	if (decompressionError) {
 		completion(decompressionError);
 		return -1;
 	}
-	
+
 	NSString* jbroot_secondary = [NSString stringWithFormat:@"/var/mobile/Containers/Shared/AppGroup/.jbroot-%016llX", jbrand_current()];
 	ASSERT(mkdir(jbroot_secondary.fileSystemRepresentation, 0755) == 0);
 	ASSERT(chown(jbroot_secondary.fileSystemRepresentation, 0, 0) == 0);
-	
+
 	ASSERT([fm moveItemAtPath:jbrootPrefix(@"/var") toPath:[jbroot_secondary stringByAppendingPathComponent:@"/var"] error:nil]);
 	ASSERT([fm createSymbolicLinkAtPath:jbrootPrefix(@"/var") withDestinationPath:@"private/var" error:nil]);
-	
+
 	ASSERT([fm removeItemAtPath:jbrootPrefix(@"/private/var") error:nil]);
 	ASSERT([fm createSymbolicLinkAtPath:jbrootPrefix(@"/private/var") withDestinationPath:[jbroot_secondary stringByAppendingPathComponent:@"/var"] error:nil]);
-	
+
 	ASSERT([fm removeItemAtPath:[jbroot_secondary stringByAppendingPathComponent:@"/var/tmp"] error:nil]);
 	ASSERT([fm moveItemAtPath:jbrootPrefix(@"/tmp") toPath:[jbroot_secondary stringByAppendingPathComponent:@"/var/tmp"] error:nil]);
 	ASSERT([fm createSymbolicLinkAtPath:jbrootPrefix(@"/tmp") withDestinationPath:@"var/tmp" error:nil]);
-	
+
 	ASSERT([fm createSymbolicLinkAtPath:[jbroot_secondary stringByAppendingPathComponent:@".jbroot"]
 					withDestinationPath:jbroot_path error:nil]);
 
@@ -1004,65 +779,60 @@ int getCFMajorVersion(void)
 		NSDictionary* attr = @{NSFilePosixPermissions:@(0755), NSFileOwnerAccountID:@(501), NSFileGroupOwnerAccountID:@(501)};
 		ASSERT([fm createDirectoryAtPath:jbrootPrefix(@"/var/mobile/Library/Preferences") withIntermediateDirectories:YES attributes:attr error:nil]);
 	}
-	
+
 	if([self buildPackageSources:completion] != 0) {
 		return -1;
 	}
-	
+
 	STRAPLOG("Status: Bootstrap Installed");
-	
+
 	return 0;
 }
 
 -(int) ReRandomizeBootstrap:(void (^)(NSError *))completion
 {
 	[[DOUIManager sharedInstance] sendLog:@"ReRandomizing Bootstrap" debug:NO];
-	
+
 	uint64_t new_jbrand = jbrand_new();
 	uint64_t prev_jbrand = jbrand_current();
 
-	//jbrootPrefix() and jbrand_current() unavailable
-	
 	NSFileManager* fm = NSFileManager.defaultManager;
-	
+
 	ASSERT( [fm moveItemAtPath:[NSString stringWithFormat:@"/var/containers/Bundle/Application/.jbroot-%016llX", prev_jbrand]
 						toPath:[NSString stringWithFormat:@"/var/containers/Bundle/Application/.jbroot-%016llX", new_jbrand] error:nil] );
-	
+
 	ASSERT([fm moveItemAtPath:[NSString stringWithFormat:@"/var/mobile/Containers/Shared/AppGroup/.jbroot-%016llX", prev_jbrand]
 					   toPath:[NSString stringWithFormat:@"/var/mobile/Containers/Shared/AppGroup/.jbroot-%016llX", new_jbrand] error:nil]);
-	
-	
+
 	NSString* jbroot_path = [NSString stringWithFormat:@"/var/containers/Bundle/Application/.jbroot-%016llX", new_jbrand];
 	NSString* jbroot_secondary = [NSString stringWithFormat:@"/var/mobile/Containers/Shared/AppGroup/.jbroot-%016llX", new_jbrand];
-	
+
 	ASSERT([fm removeItemAtPath:[jbroot_path stringByAppendingPathComponent:@"/private/var"] error:nil]);
 	ASSERT([fm createSymbolicLinkAtPath:[jbroot_path stringByAppendingPathComponent:@"/private/var"]
 					withDestinationPath:[jbroot_secondary stringByAppendingPathComponent:@"/var"] error:nil]);
-	
+
 	ASSERT([fm removeItemAtPath:[jbroot_secondary stringByAppendingPathComponent:@".jbroot"] error:nil]);
 	ASSERT([fm createSymbolicLinkAtPath:[jbroot_secondary stringByAppendingPathComponent:@".jbroot"]
 					withDestinationPath:jbroot_path error:nil]);
-	
-	find_jbroot(YES); //refresh
-	
-	//jbrootPrefix() and jbrand_current() available now
+
+	find_jbroot(YES); 
 
 	return 0;
 }
 
 -(int) doBootstrap:(void (^)(NSError *))completion {
-	
+
 	NSFileManager* fm = NSFileManager.defaultManager;
-	
+
 	int installedCount=0;
 	NSString* dirpath = @"/var/containers/Bundle/Application/";
 	NSArray *subItems = [fm contentsOfDirectoryAtPath:dirpath error:nil];
 	for (NSString *subItem in subItems)
 	{
 		if (!is_jbroot_name(subItem.UTF8String)) continue;
-		
+
 		NSString* jbroot_path = [dirpath stringByAppendingPathComponent:subItem];
-		
+
 		if([fm fileExistsAtPath:[jbroot_path stringByAppendingPathComponent:@"/.bootstrapped"]]
 		   || [fm fileExistsAtPath:[jbroot_path stringByAppendingPathComponent:@"/.thebootstrapped"]]) {
 			completion([NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedExtracting userInfo:@{NSLocalizedDescriptionKey : @"\n\nYour device has been bootstrapped through the Bootstrap app, please disable tweak for apps in AppList and UnBootstrap before jailbreaking.\n\n\n"}]);
@@ -1074,14 +844,13 @@ int getCFMajorVersion(void)
 			continue;
 		}
 
-
 		STRAPLOG("remove unknown/unfinished jbroot %@", subItem);
 
 		NSString* jbroot_secondary = [NSString stringWithFormat:@"/var/mobile/Containers/Shared/AppGroup/%@", subItem];
 		if([fm fileExistsAtPath:jbroot_secondary]) {
 			ASSERT([fm removeItemAtPath:jbroot_secondary error:nil]);
 		}
-		
+
 		ASSERT([fm removeItemAtPath:jbroot_path error:nil]);
 	}
 
@@ -1089,32 +858,32 @@ int getCFMajorVersion(void)
 		completion([NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedExtracting userInfo:@{NSLocalizedDescriptionKey : @"\n\nThere are multi jbroot in /var/containers/Bundle/Applicaton/\n\n\n"}]);
 		return -1;
 	}
-	
+
 	NSString* jbroot_path = find_jbroot(YES);
-	
+
 	if(!jbroot_path) {
 		STRAPLOG("device is not strapped...");
-		
+
 		jbroot_path = [NSString stringWithFormat:@"/var/containers/Bundle/Application/.jbroot-%016llX", jbrand_new()];
-		
+
 		STRAPLOG("bootstrap @ %@", jbroot_path);
-		
+
 		if([self InstallBootstrap:jbroot_path WithCompletion:completion] != 0) {
 			return -1;
 		}
-		
+
 	} else {
 		STRAPLOG("device is strapped: %@", jbroot_path);
-		
+
 		ASSERT([fm fileExistsAtPath:jbrootPrefix(@"/.installed_dopamine")]);
-		
+
 		STRAPLOG("Status: Rerandomize jbroot");
-		
+
 		if([self ReRandomizeBootstrap:completion] != 0) {
 			return -1;
 		}
 	}
-	
+
 	STRAPLOG("Status: Bootstrap Successful");
 
 	return 0;
@@ -1123,7 +892,6 @@ int getCFMajorVersion(void)
 - (void)prepareBootstrapWithCompletion:(void (^)(NSError *))completion
 {
 
-	// Remove /var/jb as it might be wrong
 	NSError *error=nil;
 	if (![self deleteSymlinkAtPath:@"/var/jb" error:&error]) {
 		if ([[NSFileManager defaultManager] fileExistsAtPath:@"/var/jb"]) {
@@ -1137,8 +905,7 @@ int getCFMajorVersion(void)
 			return;
 		}
 	}
-	
-	// Clean up xinaA15 v1 leftovers if desired
+
 		NSArray *xinaLeftoverSymlinks = @[
 			@"/var/alternatives",
 			@"/var/ap",
@@ -1181,24 +948,23 @@ int getCFMajorVersion(void)
 			@"/var/master.passwd",
 			@"/var/.keep_symlinks",
 		];
-		
+
 		for (NSString *xinaLeftoverSymlink in xinaLeftoverSymlinks) {
 			[self deleteSymlinkAtPath:xinaLeftoverSymlink error:nil];
 		}
-		
+
 		for (NSString *xinaLeftoverFile in xinaLeftoverFiles) {
 			if ([[NSFileManager defaultManager] fileExistsAtPath:xinaLeftoverFile]) {
 				[[NSFileManager defaultManager] removeItemAtPath:xinaLeftoverFile error:nil];
 			}
 		}
-	
+
 	if([self doBootstrap:completion] == 0) {
-		
-		//update jailbreakInfo.rootPath and jailbreakInfo.jbrand
+
 		[[DOEnvironmentManager sharedManager] locateJailbreakRoot];
-		
+
 		[[DOUIManager sharedInstance] sendLog:@"Updating BaseBin" debug:NO];
-		
+
 		NSError* error=nil;
 		if ([[NSFileManager defaultManager] fileExistsAtPath:jbrootPrefix(@"/basebin")]) {
 			if (![[NSFileManager defaultManager] removeItemAtPath:jbrootPrefix(@"/basebin") error:&error]) {
@@ -1213,9 +979,9 @@ int getCFMajorVersion(void)
 		}
 		[self patchBasebinDaemonPlists];
 		[[NSFileManager defaultManager] removeItemAtPath:jbrootPrefix(@"/basebin/basebin.tc") error:nil];
-		
+
 		JBFixMobilePermissions();
-		
+
 		completion(nil);
 	}
 }
@@ -1223,50 +989,49 @@ int getCFMajorVersion(void)
 -(int) fixBootstrapSymlink:(NSString*)path
 {
 	const char* jbpath = jbrootPrefix(path).fileSystemRepresentation;
-	
+
 	struct stat st={0};
 	assert(lstat(jbpath, &st) == 0);
 	if (!S_ISLNK(st.st_mode)) {
 		return 0;
 	}
-	
+
 	char link[PATH_MAX+1] = {0};
 	assert(readlink(jbpath, link, sizeof(link)-1) > 0);
 	if(link[0] != '/') {
 		return 0;
 	}
 
-	//stringByStandardizingPath won't remove /private/ prefix if the path does not exist on disk
 	NSString* _link = @(link).stringByStandardizingPath.stringByResolvingSymlinksInPath;
-	
+
 	NSString *pattern = @"^(?:/private)?/var/containers/Bundle/Application/\\.jbroot-[0-9A-Z]{16}(/.+)$";
 	NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
 	NSTextCheckingResult *match = [regex firstMatchInString:_link options:0 range:NSMakeRange(0, [_link length])];
 	assert(match != nil);
-	
+
 	NSString* target = [_link substringWithRange:[match rangeAtIndex:1]];
 	NSString* newlink = [@".jbroot" stringByAppendingPathComponent:target];
-	
+
 	assert(unlink(jbpath) == 0);
 	assert(symlink(newlink.fileSystemRepresentation, jbpath) == 0);
 	assert(access(jbpath, F_OK) == 0);
-	
+
 	return 0;
 }
 
 - (NSError *)finalizeBootstrap
 {
-	// Initial setup on first jailbreak
+
 	if ([[NSFileManager defaultManager] fileExistsAtPath:jbrootPrefix(@"/prep_bootstrap.sh")]) {
 		[[DOUIManager sharedInstance] sendLog:@"Finalizing Bootstrap" debug:NO];
 		int r = exec_cmd_trusted(JBROOT_PATH("/bin/sh"), "/prep_bootstrap.sh", NULL);
 		if (r != 0) {
 			return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"prep_bootstrap.sh returned %d\n", r]}];
 		}
-		
+
 		NSError *error = [self installPackageManagers];
 		if (error) return error;
-		
+
 		NSString *roothideManager = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"roothideapp.deb"];
 		 r = [self installPackage:roothideManager];
 		if (r != 0) return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install roothideManager: %d\n", r]}];
@@ -1281,21 +1046,21 @@ int getCFMajorVersion(void)
 			return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"updatelinks.sh returned %d\n", r]}];
 		}
 	}
-	
+
 	BOOL shouldInstallLibkrw = [self shouldInstallPackage:@"libkrw0-dopamine"];
 	BOOL shouldInstallBasebinLink = [self shouldInstallPackage:@"dopamine-basebin-link"];
-	
+
 	if (shouldInstallLibkrw || shouldInstallBasebinLink) {
 		[[DOUIManager sharedInstance] sendLog:@"Updating Bundled Packages" debug:NO];
-		
+
 		if (shouldInstallLibkrw) {
 			NSString *libkrwPath = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"libkrw-dopamine.deb"];
 			int r = [self installPackage:libkrwPath];
 			if (r != 0) return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install the libkrw plugin: %d\n", r]}];
 		}
-		
+
 		if (shouldInstallBasebinLink) {
-			// Clean symlinks from earlier Dopamine versions
+
 			if (![self fileOrSymlinkExistsAtPath:jbrootPrefix(@"/usr/bin/opainject")]) {
 				[[NSFileManager defaultManager] removeItemAtPath:jbrootPrefix(@"/usr/bin/opainject") error:nil];
 			}
@@ -1306,7 +1071,7 @@ int getCFMajorVersion(void)
 				[[NSFileManager defaultManager] removeItemAtPath:jbrootPrefix(@"/usr/lib/libjailbreak.dylib") error:nil];
 			}
 			if (![self fileOrSymlinkExistsAtPath:jbrootPrefix(@"/usr/bin/libjailbreak.dylib")]) {
-				// Yes this exists >.< was a typo
+
 				[[NSFileManager defaultManager] removeItemAtPath:jbrootPrefix(@"/usr/bin/libjailbreak.dylib") error:nil];
 			}
 
@@ -1315,7 +1080,6 @@ int getCFMajorVersion(void)
 			if (r != 0) return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install basebin link: %d\n", r]}];
 		}
 	}
-
 
 	if ([self fileOrSymlinkExistsAtPath:jbrootPrefix(@"/usr/lib/libroot.dylib")]) {
 		[[NSFileManager defaultManager] removeItemAtPath:jbrootPrefix(@"/usr/lib/libroot.dylib") error:nil];
@@ -1332,9 +1096,8 @@ int getCFMajorVersion(void)
 		return error;
 	}
 
-	
 	[[NSString stringWithFormat:@"%d",DOPAMINE_INSTALL_VERSION] writeToFile:jbrootPrefix(@"/.installed_dopamine") atomically:YES encoding:NSUTF8StringEncoding error:nil];
-	
+
 	if(jbclient_palehide_present()) {
 		[@"" writeToFile:jbrootPrefix(@"/.installed_palera1n") atomically:YES encoding:NSUTF8StringEncoding error:nil];
 	} else {
@@ -1346,11 +1109,10 @@ int getCFMajorVersion(void)
 
 - (NSError *)deleteBootstrap
 {
-	//jbrootPrefix() and jbrand_current() unavailable now
-	
+
 	NSError* error=nil;
 	NSFileManager* fm = NSFileManager.defaultManager;
-	
+
 	NSString* dirpath = @"/var/containers/Bundle/Application/";
 	for(NSString* item in [fm directoryContentsAtPath:dirpath])
 	{
@@ -1360,7 +1122,7 @@ int getCFMajorVersion(void)
 				return error;
 		}
 	}
-	
+
 	dirpath = @"/var/mobile/Containers/Shared/AppGroup/";
 	for(NSString* item in [fm directoryContentsAtPath:dirpath])
 	{
@@ -1370,19 +1132,17 @@ int getCFMajorVersion(void)
 				return error;
 		}
 	}
-	
+
 	return nil;
 }
 
 @end
 
-/////////////////////////////////////////////////////////////////
-
 @implementation DOEnvironmentManager(roothide)
 - (void)locateJailbreakRoot
 {
 	if(gSystemInfo.jailbreakInfo.rootPath) free(gSystemInfo.jailbreakInfo.rootPath);
-	
+
 	NSString* jbroot_path = find_jbroot(YES);
 	if(jbroot_path) {
 		gSystemInfo.jailbreakInfo.rootPath = strdup(jbroot_path.fileSystemRepresentation);
@@ -1394,5 +1154,3 @@ int getCFMajorVersion(void)
 	return nil;
 }
 @end
-
-/************************************** roothide specific *******************************************/
