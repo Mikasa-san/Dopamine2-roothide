@@ -199,102 +199,75 @@ int roothide_systemhook___posix_spawn_prehook(pid_t *restrict pidp, const char *
 	return posix_spawn_hook_shared(pidp, path, desc, argv, envp, orig, trust_binary, set_process_debugged, jetsamMultiplier);
 }
 
-int roothide_systemhook___posix_spawn_posthook(pid_t *restrict pidp, const char *restrict path, struct _posix_spawn_args_desc *desc, char *const argv[restrict], char *const envp[restrict])
+#define NBINPREFS 4
+#define POSIX_SPAWN_PROC_TYPE_DRIVER 0x700
+
+int roothide_systemhook___posix_spawn_posthook(pid_t *pidp,
+	const char *path,
+	struct _posix_spawn_args_desc *desc,
+	char *const argv[],
+	char *const envp[])
 {
-	posix_spawnattr_t attrp = &desc->attrp;
-
-	kSpawnConfig spawnConfig = 0;
-	if(!dyld_patch_global_enabled)
-	{
-		spawnConfig = spawn_config_for_executable(path, argv);
-
-		if (spawnConfig & kSpawnConfigTrust) {
-			size_t outCount = 0;
-			bool preferredArchsSet = false;
-			cpu_type_t preferredTypes[NBINPREFS] = {0};
-			cpu_subtype_t preferredSubtypes[NBINPREFS] = {0};
-			if (posix_spawnattr_getarchpref_np(attrp, 4, preferredTypes, preferredSubtypes, &outCount) == 0) {
-				for (size_t i = 0; i < outCount; i++) {
-					if (preferredTypes[i] != 0 || preferredSubtypes[i] != UINT32_MAX) {
-						preferredArchsSet = true;
-						break;
-					}
-				}
-			}
-
-			xpc_object_t preferredArchsArray = NULL;
-			if (preferredArchsSet) {
-				preferredArchsArray = xpc_array_create_empty();
-				for (size_t i = 0; i < outCount; i++) {
-					xpc_object_t curArch = xpc_dictionary_create_empty();
-					xpc_dictionary_set_uint64(curArch, "type", preferredTypes[i]);
-					xpc_dictionary_set_uint64(curArch, "subtype", preferredSubtypes[i]);
-					xpc_array_set_value(preferredArchsArray, XPC_ARRAY_APPEND, curArch);
-					xpc_release(curArch);
-				}
-			}
-
-			jbclient_trust_executable_recurse(path, preferredArchsArray);
-
-			if (preferredArchsArray) {
-				xpc_release(preferredArchsArray);
-			}
+	posix_spawnattr_t *attrp = &desc->attrp;
+	
+	/* Trust logic */
+	if (!dyld_patch_global_enabled) {
+		kSpawnConfig cfg = spawn_config_for_executable(path, argv);
+		if (cfg & kSpawnConfigTrust) {
+			jbclient_trust_executable_recurse(path, NULL);
 		}
 	}
-
+	
+	/* Suspension flags */
 	short flags = 0;
 	posix_spawnattr_getflags(attrp, &flags);
-
 	int proctype = 0;
 	posix_spawnattr_getprocesstype_np(attrp, &proctype);
-
-	bool should_suspend = (proctype != POSIX_SPAWN_PROC_TYPE_DRIVER);
-	bool should_resume = should_suspend && (flags & POSIX_SPAWN_START_SUSPENDED)==0;
-	bool patch_exec = should_suspend && (flags & POSIX_SPAWN_SETEXEC) != 0;
-
-	if (should_suspend) {
+	
+	bool suspend = (proctype != POSIX_SPAWN_PROC_TYPE_DRIVER);
+	bool resume = suspend && !(flags & POSIX_SPAWN_START_SUSPENDED);
+	bool exec   = suspend && (flags & POSIX_SPAWN_SETEXEC);
+	
+	if (suspend)
 		posix_spawnattr_setflags(attrp, flags | POSIX_SPAWN_START_SUSPENDED);
-	}
-
-	if (patch_exec) {
-		if (jbdSpawnExecStart(path, should_resume) != 0) { 
-
+	
+	if (exec) {
+		if (jbdSpawnExecStart(path, resume) != 0) {
 			posix_spawnattr_setflags(attrp, flags);
 			return 201;
 		}
 	}
-
+	
+	/* Prepare environment */
 	char **envc = envbuf_mutcopy((const char **)envp);
-	if(envbuf_getenv(envc, "DYLD_INSERT_LIBRARIES")) {
+	if (envbuf_getenv(envc, "DYLD_INSERT_LIBRARIES")) {
 		envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
 	}
-
-	if(!dyld_patch_global_enabled)
-	{
-		if (spawnConfig & kSpawnConfigTrust) {
+	
+	if (!dyld_patch_global_enabled) {
+		kSpawnConfig cfg2 = spawn_config_for_executable(path, argv);
+		if (cfg2 & kSpawnConfigTrust) {
 			trust_insert_libraries(envc);
 		}
 	}
-
-	int pid = 0;
-	int ret = __posix_spawn_orig(&pid, path, desc, argv, envc);
-	if (pidp) *pidp = pid;
-
-	envbuf_free(envc);
-
+	
+	/* Spawn original */
+	int child = 0;
+	int ret = __posix_spawn_orig(&child, path, desc, argv, envc);
+	if (pidp) *pidp = child;
+		envbuf_free(envc);
 	posix_spawnattr_setflags(attrp, flags);
-
-	if (patch_exec) { 
+	
+	/* Post-patch */
+	if (exec) {
 		jbdSpawnExecCancel(path);
-	} else if (ret == 0 && pid > 0) {
-		if (should_suspend) {
-			if(jbdSpawnPatchChild(pid, should_resume) != 0) { 
-				kill(pid, SIGKILL);
-				return 202;
-			}
+	} else if (ret == 0 && child > 0 && suspend) {
+		if (jbdSpawnPatchChild(child, resume) != 0) {
+			kill(child, SIGKILL);
+			return 202;
 		}
 	}
-
+	
 	return ret;
 }
 
