@@ -27,6 +27,7 @@ jobs:
           set -x
           export BASEDIR="$(pwd)"
           export THEOS="${BASEDIR}/theos"
+          export CFLAGS="-O2"
           mkdir -p $THEOS
           curl -fsSL https://raw.githubusercontent.com/roothide/theos/master/bin/install-theos >> install-theos.sh
           gsed -E "/^\s*get_theos\s*$/,+1 s/^(\s*)(get_sdks)\s*$/\1mkdir -p \${THEOS}\/sdks\n\1touch \${THEOS}\/sdks\/sdk\n\1\2/g" -i install-theos.sh
