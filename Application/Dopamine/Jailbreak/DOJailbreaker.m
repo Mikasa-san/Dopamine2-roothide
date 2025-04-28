@@ -308,32 +308,44 @@ void *boomerang_server(struct boomerang_info *info)
 
 - (NSError *)injectLaunchdHook
 {
-	mach_port_t serverPort = MACH_PORT_NULL;
-	if (mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &serverPort) ||
-		mach_port_insert_right(mach_task_self(), serverPort, serverPort, MACH_MSG_TYPE_MAKE_SEND))
-		return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLaunchdInjection userInfo:@{NSLocalizedDescriptionKey:@"Can't alloc mach port"}];
 
-	dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-	struct boomerang_info info = {serverPort,sem};
-	dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT,0),^{boomerang_server(&info);});
+	mach_port_t serverPort = MACH_PORT_NULL;
+	mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &serverPort);
+	mach_port_insert_right(mach_task_self(), serverPort, serverPort, MACH_MSG_TYPE_MAKE_SEND);
+
+	struct boomerang_info info;
+	info.serverPort = serverPort;
+	info.boomerangDone = dispatch_semaphore_create(0);
+
+	pthread_t boomerangThread;
+	pthread_create(&boomerangThread, NULL, (void *(*)(void *))boomerang_server, &info);
+	pthread_detach(boomerangThread);
 
 	posix_spawnattr_t attr;
 	posix_spawnattr_init(&attr);
-	posix_spawnattr_set_registered_ports_np(&attr,(mach_port_t[]){MACH_PORT_NULL,MACH_PORT_NULL,serverPort},3);
-
-	char *const args[] = {JBROOT_PATH("/basebin/jbctl"),"internal","launchd_stash_port",NULL};
-	pid_t pid; int err = posix_spawn(&pid,args[0],NULL,&attr,args,NULL);
+	posix_spawnattr_set_registered_ports_np(&attr, (mach_port_t[]){MACH_PORT_NULL, MACH_PORT_NULL, serverPort}, 3);
+	pid_t spawnedPid = 0;
+	const char *jbctlPath = JBROOT_PATH("/basebin/jbctl");
+	int spawnError = posix_spawn(&spawnedPid, jbctlPath, NULL, &attr, (char *const *)(const char *[]){ jbctlPath, "internal", "launchd_stash_port", NULL }, NULL);
+	if (spawnError != 0) {
+		return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLaunchdInjection userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Spawning jbctl failed with error code %d", spawnError]}];
+	}
 	posix_spawnattr_destroy(&attr);
-	if(err) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLaunchdInjection userInfo:@{NSLocalizedDescriptionKey:@"spawn jbctl failed"}];
+	int status = 0;
+	do {
+		if (waitpid(spawnedPid, &status, 0) == -1) {
+			return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLaunchdInjection userInfo:@{NSLocalizedDescriptionKey : @"Waiting for jbctl failed"}];;
+		}
+	} while (!WIFEXITED(status) && !WIFSIGNALED(status));
 
-	if(waitpid(pid,NULL,0)==-1)
-		return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLaunchdInjection userInfo:@{NSLocalizedDescriptionKey:@"waitpid failed"}];
+	int r = exec_cmd(JBROOT_PATH("/basebin/opainject"), "1", JBROOT_PATH("/basebin/launchdhook.dylib"), NULL);
+	if (r != 0) {
+		return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLaunchdInjection userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"opainject failed with error code %d", r]}];
+	}
 
-	if(exec_cmd(JBROOT_PATH("/basebin/opainject"),"1",JBROOT_PATH("/basebin/launchdhook.dylib"),NULL))
-		return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLaunchdInjection userInfo:@{NSLocalizedDescriptionKey:@"opainject failed"}];
+	dispatch_semaphore_wait(info.boomerangDone, DISPATCH_TIME_FOREVER);
+	mach_port_deallocate(mach_task_self(), serverPort);
 
-	dispatch_semaphore_wait(sem,DISPATCH_TIME_FOREVER);
-	mach_port_deallocate(mach_task_self(),serverPort);
 	return nil;
 }
 
