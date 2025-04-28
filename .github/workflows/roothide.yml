@@ -9,8 +9,14 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-13
+    runs-on: macos-14   # ARM64-only runner
+
     steps:
+      - name: Select Xcode 15.2
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15.2'
+
       - name: Checkout Dopamine2-roothide
         uses: actions/checkout@v3
         with:
@@ -27,22 +33,29 @@ jobs:
           set -x
           export BASEDIR="$(pwd)"
           export THEOS="${BASEDIR}/theos"
-          mkdir -p $THEOS
-          curl -fsSL https://raw.githubusercontent.com/roothide/theos/master/bin/install-theos >> install-theos.sh
-          gsed -E "/^\s*get_theos\s*$/,+1 s/^(\s*)(get_sdks)\s*$/\1mkdir -p \${THEOS}\/sdks\n\1touch \${THEOS}\/sdks\/sdk\n\1\2/g" -i install-theos.sh
+          mkdir -p "$THEOS"
+          curl -fsSL https://raw.githubusercontent.com/roothide/theos/master/bin/install-theos \
+            >> install-theos.sh
+          gsed -E "/^\s*get_theos\s*$/,+1 s/^(\s*)(get_sdks)\s*$/\1mkdir -p \${THEOS}\/sdks\n\1touch \${THEOS}\/sdks\/sdk\n\1\2/g" \
+            -i install-theos.sh
           bash install-theos.sh
-          curl -L https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz --output $THEOS/sdks/iPhoneOS16.5.sdk.tar.xz
-          gunzip $THEOS/sdks/iPhoneOS16.5.sdk.tar.xz
-          tar -xf $THEOS/sdks/iPhoneOS16.5.sdk.tar -C $THEOS/sdks
-          rm $THEOS/sdks/iPhoneOS16.5.sdk.tar
-          cd $BASEDIR
+          curl -L https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz \
+            --output "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
+          gunzip "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
+          tar -xf "$THEOS/sdks/iPhoneOS16.5.sdk.tar" -C "$THEOS/sdks"
+          rm "$THEOS/sdks/iPhoneOS16.5.sdk.tar"
+          cd "$BASEDIR"
 
       - name: Build and Install trustcache
         run: |
           set -x
           git clone https://github.com/CRKatri/trustcache
           cd trustcache
-          gmake -j$(sysctl -n hw.physicalcpu) OPENSSL=1
+          OPENSSL_PREFIX="$(brew --prefix openssl@1.1)"
+          export CFLAGS="-arch arm64 -I${OPENSSL_PREFIX}/include"
+          export LDFLAGS="-arch arm64 -L${OPENSSL_PREFIX}/lib"
+          export CC="clang"
+          gmake -j"$(sysctl -n hw.physicalcpu)" OPENSSL=1
           sudo cp trustcache /opt/procursus/bin/
 
       - name: Set Environment Variables
@@ -64,17 +77,19 @@ jobs:
           set -x
           export BASEDIR="$(pwd)"
           export THEOS="${BASEDIR}/theos"
-          itemcount=$(plutil -extract items raw -expect array ./Application/Dopamine/UI/Settings/Credits.plist)
-          for ((i=0; i<$itemcount; i++)); do 
-            if [ "$(plutil -extract items.$i.headerCellClass raw ./Application/Dopamine/UI/Settings/Credits.plist)" = "DOCreditsCell" ]; then 
-              DOCreditsCellIndex=$i 
-            fi 
+          itemcount=$(plutil -extract items raw -expect array \
+            "./Application/Dopamine/UI/Settings/Credits.plist")
+          for ((i=0; i<itemcount; i++)); do
+            if [ "$(plutil -extract items.$i.headerCellClass raw \
+                "./Application/Dopamine/UI/Settings/Credits.plist")" = "DOCreditsCell" ]; then
+              DOCreditsCellIndex=$i
+            fi
           done
           plutil -insert items.$DOCreditsCellIndex.names -xml \
             "<dict><key>name</key><string>${{ github.actor }}</string><key>link</key><string>https://github.com/${{ github.repository }}</string></dict>" \
-            -append ./Application/Dopamine/UI/Settings/Credits.plist
-          gmake -j$(sysctl -n hw.physicalcpu) NIGHTLY=0
-          mv ./Application/Dopamine.tipa "./Application/roothide-Dopamine2.tipa"
+            -append "./Application/Dopamine/UI/Settings/Credits.plist"
+          gmake -j"$(sysctl -n hw.physicalcpu)" NIGHTLY=0
+          mv "./Application/Dopamine.tipa" "./Application/roothide-Dopamine2.tipa"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
