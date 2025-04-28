@@ -23,15 +23,6 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Cache THEOS SDKs
-        uses: actions/cache@v4
-        id: cache-theos
-        with:
-          path: theos/sdks
-          key: ${{ runner.os }}-theos-sdks-16.5
-          restore-keys: |
-            ${{ runner.os }}-theos-sdks-
-
       - name: Install Procursus
         uses: beerpiss/procursus-action@v2
         with:
@@ -53,11 +44,11 @@ jobs:
           rm $THEOS/sdks/iPhoneOS16.5.sdk.tar
           cd $BASEDIR
 
-      - name: Install OpenSSL & Dependencies
+      - name: Install Homebrew Dependencies
         run: |
           brew install openssl@1.1 gettext libarchive make
-          # Make (GNU make) is installed as `gmake` :contentReference[oaicite:0]{index=0}
-          export PATH="$(brew --prefix make)/libexec/gnubin:$PATH"
+          # Prepend Homebrew’s bin so that its gmake (ARM64) is used
+          echo "PATH=$(brew --prefix)/bin:$PATH" >> $GITHUB_ENV
 
       - name: Overwrite Procursus libintl with ARM64
         run: |
