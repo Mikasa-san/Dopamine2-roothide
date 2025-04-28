@@ -46,11 +46,7 @@ jobs:
 
       - name: Dependencies
         run: |
-          brew install gettext libarchive
-
-      - name: Overwrite Procursus libintl with ARM64
-        run: |
-          sudo cp "$(brew --prefix gettext)/lib/libintl.8.dylib" /opt/procursus/lib/libintl.8.dylib
+          brew install libarchive
 
       - name: Build and Install trustcache
         run: |
@@ -74,6 +70,10 @@ jobs:
           echo "ctimestamp=${TS}" >> $GITHUB_ENV
           echo "shorthash=${SHASH}" >> $GITHUB_ENV
 
+      - name: Overwrite Procursus libintl with ARM64
+        run: |
+          sudo cp "$(brew --prefix gettext)/lib/libintl.8.dylib" /opt/procursus/lib/libintl.8.dylib
+          
       - name: Build Dopamine2-roothide
         run: |
           set -x
