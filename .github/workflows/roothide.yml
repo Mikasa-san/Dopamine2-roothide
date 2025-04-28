@@ -69,7 +69,7 @@ jobs:
           plutil -insert items.$DOCreditsCellIndex.names -xml \
             "<dict><key>name</key><string>${{ github.actor }}</string><key>link</key><string>https://github.com/${{ github.repository }}</string></dict>" \
             -append ./Application/Dopamine/UI/Settings/Credits.plist
-          gmake CFLAGS="-O2" -j"$(sysctl -n hw.physicalcpu)" NIGHTLY=0
+          gmake -j"$(sysctl -n hw.physicalcpu)" NIGHTLY=0
           mv ./Application/Dopamine.tipa "./Application/roothide-Dopamine2.tipa"
 
       - name: Upload Artifact
