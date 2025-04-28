@@ -23,6 +23,15 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Cache THEOS SDKs
+        uses: actions/cache@v4
+        id: cache-theos
+        with:
+          path: theos/sdks
+          key: ${{ runner.os }}-theos-sdks-16.5
+          restore-keys: |
+            ${{ runner.os }}-theos-sdks-
+
       - name: Install Procursus
         uses: beerpiss/procursus-action@v2
         with:
@@ -34,19 +43,26 @@ jobs:
           set -x
           export BASEDIR="$(pwd)"
           export THEOS="${BASEDIR}/theos"
-          mkdir -p "$THEOS"
-          curl -fsSL https://raw.githubusercontent.com/roothide/theos/master/bin/install-theos \
-            > install-theos.sh
+          mkdir -p $THEOS
+          curl -fsSL https://raw.githubusercontent.com/roothide/theos/master/bin/install-theos >> install-theos.sh
+          gsed -E "/^\s*get_theos\s*$/,+1 s/^(\s*)(get_sdks)\s*$/\1mkdir -p \${THEOS}\/sdks\n\1touch \${THEOS}\/sdks\/sdk\n\1\2/g" -i install-theos.sh
           bash install-theos.sh
-          curl -L https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz \
-            --output "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
-          gunzip "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
-          tar -xf "$THEOS/sdks/iPhoneOS16.5.sdk.tar" -C "$THEOS/sdks"
-          rm "$THEOS/sdks/iPhoneOS16.5.sdk.tar"
+          curl -L https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz --output $THEOS/sdks/iPhoneOS16.5.sdk.tar.xz
+          gunzip $THEOS/sdks/iPhoneOS16.5.sdk.tar.xz
+          tar -xf $THEOS/sdks/iPhoneOS16.5.sdk.tar -C $THEOS/sdks
+          rm $THEOS/sdks/iPhoneOS16.5.sdk.tar
+          cd $BASEDIR
 
-      - name: Dependencies
+      - name: Install OpenSSL & Dependencies
         run: |
-          brew install libarchive
+          brew install openssl@1.1 gettext libarchive make
+          # Make (GNU make) is installed as `gmake` :contentReference[oaicite:0]{index=0}
+          export PATH="$(brew --prefix make)/libexec/gnubin:$PATH"
+
+      - name: Overwrite Procursus libintl with ARM64
+        run: |
+          # Ensure any Procursus tools that depend on libintl get the ARM64 version
+          sudo cp "$(brew --prefix gettext)/lib/libintl.8.dylib" /opt/procursus/lib/libintl.8.dylib
 
       - name: Build and Install trustcache
         run: |
@@ -57,6 +73,7 @@ jobs:
           export CFLAGS="-arch arm64 -I${OPENSSL_PREFIX}/include"
           export LDFLAGS="-arch arm64 -L${OPENSSL_PREFIX}/lib"
           export CC="clang"
+          # Use Homebrew’s gmake (GNU make) instead of Procursus’s gmake
           gmake -j"$(sysctl -n hw.physicalcpu)" OPENSSL=1
           sudo cp trustcache /opt/procursus/bin/
 
@@ -70,10 +87,6 @@ jobs:
           echo "ctimestamp=${TS}" >> $GITHUB_ENV
           echo "shorthash=${SHASH}" >> $GITHUB_ENV
 
-      - name: Overwrite Procursus libintl with ARM64
-        run: |
-          sudo cp "$(brew --prefix gettext)/lib/libintl.8.dylib" /opt/procursus/lib/libintl.8.dylib
-          
       - name: Build Dopamine2-roothide
         run: |
           set -x
