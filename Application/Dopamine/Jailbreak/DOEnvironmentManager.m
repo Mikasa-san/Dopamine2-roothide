@@ -24,480 +24,480 @@ int reboot3(uint64_t flags, ...);
 
 + (instancetype)sharedManager
 {
-    static DOEnvironmentManager *shared;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        shared = [[DOEnvironmentManager alloc] init];
-    });
-    return shared;
+	static DOEnvironmentManager *shared;
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		shared = [[DOEnvironmentManager alloc] init];
+	});
+	return shared;
 }
 
 - (instancetype)init
 {
-    self = [super init];
-    if (self) {
-        _bootstrapNeedsMigration = NO;
-        _bootstrapper = [[DOBootstrapper alloc] init];
-        if ([self isJailbroken]) {
-            gSystemInfo.jailbreakInfo.rootPath = strdup(jbclient_get_jbroot() ?: "");
-        }
-        else if ([self isInstalledThroughTrollStore]) {
-            [self locateJailbreakRoot];
-        }
-    }
-    return self;
+	self = [super init];
+	if (self) {
+		_bootstrapNeedsMigration = NO;
+		_bootstrapper = [[DOBootstrapper alloc] init];
+		if ([self isJailbroken]) {
+			gSystemInfo.jailbreakInfo.rootPath = strdup(jbclient_get_jbroot() ?: "");
+		}
+		else if ([self isInstalledThroughTrollStore]) {
+			[self locateJailbreakRoot];
+		}
+	}
+	return self;
 }
 
 - (NSString *)nightlyHash
 {
 #ifdef NIGHTLY
-    return [NSString stringWithUTF8String:COMMIT_HASH];
+	return [NSString stringWithUTF8String:COMMIT_HASH];
 #else
-    return nil;
+	return nil;
 #endif
 }
 
 - (NSString *)appVersion
 {
-    return [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+	return [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
 }
 
 - (NSString *)appVersionDisplayString
 {
-    NSString *nightlyHash = [self nightlyHash];
-    if (nightlyHash) {
-        return [NSString stringWithFormat:@"%@~%@", self.appVersion, [nightlyHash substringToIndex:6]];
-    }
-    else {
-        return [self appVersion];
-    }
+	NSString *nightlyHash = [self nightlyHash];
+	if (nightlyHash) {
+		return [NSString stringWithFormat:@"%@~%@", self.appVersion, [nightlyHash substringToIndex:6]];
+	}
+	else {
+		return [self appVersion];
+	}
 }
 
 - (NSData *)bootManifestHash
 {
-    if (!_bootManifestHash) {
-        io_registry_entry_t registryEntry = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/chosen");
-        if (registryEntry) {
-            _bootManifestHash = (__bridge NSData *)IORegistryEntryCreateCFProperty(registryEntry, CFSTR("boot-manifest-hash"), NULL, 0);
-        }
-    }
-    return _bootManifestHash;
+	if (!_bootManifestHash) {
+		io_registry_entry_t registryEntry = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/chosen");
+		if (registryEntry) {
+			_bootManifestHash = (__bridge NSData *)IORegistryEntryCreateCFProperty(registryEntry, CFSTR("boot-manifest-hash"), NULL, 0);
+		}
+	}
+	return _bootManifestHash;
 }
 
 - (NSString *)activePrebootPath
 {
-    return [@"/private/preboot" stringByAppendingPathComponent:[self bootManifestHash].hexString];
+	return [@"/private/preboot" stringByAppendingPathComponent:[self bootManifestHash].hexString];
 }
 
 - (BOOL)isArm64e
 {
-    cpu_subtype_t cpusubtype = 0;
-    size_t len = sizeof(cpusubtype);
-    if (sysctlbyname("hw.cpusubtype", &cpusubtype, &len, NULL, 0) == -1) { return NO; }
-    return (cpusubtype & ~CPU_SUBTYPE_MASK) == CPU_SUBTYPE_ARM64E;
+	cpu_subtype_t cpusubtype = 0;
+	size_t len = sizeof(cpusubtype);
+	if (sysctlbyname("hw.cpusubtype", &cpusubtype, &len, NULL, 0) == -1) { return NO; }
+	return (cpusubtype & ~CPU_SUBTYPE_MASK) == CPU_SUBTYPE_ARM64E;
 }
 
 - (NSString *)versionSupportString
 {
-    if ([self isArm64e]) {
-        return @"iOS 15.0 - 16.5.1 (arm64e)";
-    }
-    else {
-        return @"iOS 15.0 - 16.6.1 (arm64)";
-    }
+	if ([self isArm64e]) {
+		return @"iOS 15.0 - 16.5.1 (arm64e)";
+	}
+	else {
+		return @"iOS 15.0 - 16.6.1 (arm64)";
+	}
 }
 
 - (BOOL)isInstalledThroughTrollStore
 {
-    static BOOL trollstoreInstallation = NO;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        NSString* trollStoreMarkerPath = [[[NSBundle mainBundle].bundlePath stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"_TrollStore"];
-        trollstoreInstallation = [[NSFileManager defaultManager] fileExistsAtPath:trollStoreMarkerPath];
-    });
-    return trollstoreInstallation;
+	static BOOL trollstoreInstallation = NO;
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		NSString* trollStoreMarkerPath = [[[NSBundle mainBundle].bundlePath stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"_TrollStore"];
+		trollstoreInstallation = [[NSFileManager defaultManager] fileExistsAtPath:trollStoreMarkerPath];
+	});
+	return trollstoreInstallation;
 }
 
 - (BOOL)isJailbroken
 {
 
-    if(!jbclient_roothide_jailbroken())
-        return NO;
+	if(!jbclient_roothide_jailbroken())
+		return NO;
 
-    static BOOL jailbroken = NO;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        uint32_t csFlags = 0;
-        csops(getpid(), CS_OPS_STATUS, &csFlags, sizeof(csFlags));
-        jailbroken = csFlags & CS_PLATFORM_BINARY;
-    });
-    return jailbroken;
+	static BOOL jailbroken = NO;
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		uint32_t csFlags = 0;
+		csops(getpid(), CS_OPS_STATUS, &csFlags, sizeof(csFlags));
+		jailbroken = csFlags & CS_PLATFORM_BINARY;
+	});
+	return jailbroken;
 }
 
 - (NSString *)jailbrokenVersion
 {
-    if (!self.isJailbroken) return nil;
+	if (!self.isJailbroken) return nil;
 
-    __block NSString *version;
-    [self runAsRoot:^{
-        [self runUnsandboxed:^{
-            version = [NSString stringWithContentsOfFile:JBROOT_PATH(@"/basebin/.version") encoding:NSUTF8StringEncoding error:nil];
-        }];
-    }];
-    return version;
+	__block NSString *version;
+	[self runAsRoot:^{
+		[self runUnsandboxed:^{
+			version = [NSString stringWithContentsOfFile:JBROOT_PATH(@"/basebin/.version") encoding:NSUTF8StringEncoding error:nil];
+		}];
+	}];
+	return version;
 }
 
 - (BOOL)isBootstrapped
 {
-    return (BOOL)jbinfo(rootPath);
+	return (BOOL)jbinfo(rootPath);
 }
 
 - (void)runUnsandboxed:(void (^)(void))unsandboxBlock
 {
-    if ([self isInstalledThroughTrollStore]) {
-        unsandboxBlock();
-    }
-    else if([self isJailbroken]) {
-        uint64_t labelBackup = 0;
-        jbclient_root_set_mac_label(1, -1, &labelBackup);
-        unsandboxBlock();
-        jbclient_root_set_mac_label(1, labelBackup, NULL);
-    }
-    else {
+	if ([self isInstalledThroughTrollStore]) {
+		unsandboxBlock();
+	}
+	else if([self isJailbroken]) {
+		uint64_t labelBackup = 0;
+		jbclient_root_set_mac_label(1, -1, &labelBackup);
+		unsandboxBlock();
+		jbclient_root_set_mac_label(1, labelBackup, NULL);
+	}
+	else {
 
-        unsandboxBlock();
-    }
+		unsandboxBlock();
+	}
 }
 
 - (void)runAsRoot:(void (^)(void))rootBlock
 {
-    uint32_t orgUser = getuid();
-    uint32_t orgGroup = getgid();
-    if (geteuid() == 0 && orgGroup == 0) {
-        rootBlock();
-        return;
-    }
+	uint32_t orgUser = getuid();
+	uint32_t orgGroup = getgid();
+	if (geteuid() == 0 && orgGroup == 0) {
+		rootBlock();
+		return;
+	}
 
-    int ur = 0, gr = 0;
-    if (orgUser != 0) ur = setuid(0);
-    if (orgGroup != 0) gr = setgid(0);
-    if (ur == 0 && gr == 0) {
-        rootBlock();
-    }
+	int ur = 0, gr = 0;
+	if (orgUser != 0) ur = setuid(0);
+	if (orgGroup != 0) gr = setgid(0);
+	if (ur == 0 && gr == 0) {
+		rootBlock();
+	}
 
-    if (gr == 0 && orgGroup != 0) setgid(orgGroup);
-    if (ur == 0 && orgUser != 0) seteuid(orgUser);
+	if (gr == 0 && orgGroup != 0) setgid(orgGroup);
+	if (ur == 0 && orgUser != 0) seteuid(orgUser);
 }
 
 - (int)runTrollStoreAction:(NSString *)action
 {
-    if (![self isInstalledThroughTrollStore]) return -1;
+	if (![self isInstalledThroughTrollStore]) return -1;
 
-    uint32_t selfPathSize = PATH_MAX;
-    char selfPath[selfPathSize];
-    _NSGetExecutablePath(selfPath, &selfPathSize);
-    return exec_cmd_root(selfPath, "trollstore", action.UTF8String, NULL);
+	uint32_t selfPathSize = PATH_MAX;
+	char selfPath[selfPathSize];
+	_NSGetExecutablePath(selfPath, &selfPathSize);
+	return exec_cmd_root(selfPath, "trollstore", action.UTF8String, NULL);
 }
 
 - (void)respring
 {
-    [self runAsRoot:^{
-        __block int pid = 0;
-        __block int r = 0;
-        [self runUnsandboxed:^{
-            r = exec_cmd_suspended(&pid, JBROOT_PATH("/usr/bin/sbreload"), NULL);
-            if (r == 0) {
-                kill(pid, SIGCONT);
-            }
-        }];
-        if (r == 0) {
-            if (cmd_wait_for_exit(pid) != 0) {
+	[self runAsRoot:^{
+		__block int pid = 0;
+		__block int r = 0;
+		[self runUnsandboxed:^{
+			r = exec_cmd_suspended(&pid, JBROOT_PATH("/usr/bin/sbreload"), NULL);
+			if (r == 0) {
+				kill(pid, SIGCONT);
+			}
+		}];
+		if (r == 0) {
+			if (cmd_wait_for_exit(pid) != 0) {
 
-                [self runUnsandboxed:^{
-                    killall("/usr/libexec/backboardd", SIGTERM);
-                }];
-            }
-        }
-    }];
+				[self runUnsandboxed:^{
+					killall("/usr/libexec/backboardd", SIGTERM);
+				}];
+			}
+		}
+	}];
 }
 
 - (void)rebootUserspace
 {
-    [self runAsRoot:^{
-        __block int pid = 0;
-        __block int r = 0;
-        [self runUnsandboxed:^{
-            r = exec_cmd_suspended(&pid, JBROOT_PATH("/basebin/jbctl"), "reboot_userspace", NULL);
-            if (r == 0) {
+	[self runAsRoot:^{
+		__block int pid = 0;
+		__block int r = 0;
+		[self runUnsandboxed:^{
+			r = exec_cmd_suspended(&pid, JBROOT_PATH("/basebin/jbctl"), "reboot_userspace", NULL);
+			if (r == 0) {
 
-                kill(pid, SIGCONT);
-            }
-        }];
-        if (r == 0) {
-            cmd_wait_for_exit(pid);
-        }
-    }];
+				kill(pid, SIGCONT);
+			}
+		}];
+		if (r == 0) {
+			cmd_wait_for_exit(pid);
+		}
+	}];
 }
 
 - (void)refreshJailbreakApps
 {
-    [self runAsRoot:^{
-        [self runUnsandboxed:^{
-            exec_cmd(JBROOT_PATH("/usr/bin/uicache"), "-a", NULL);
-        }];
-    }];
+	[self runAsRoot:^{
+		[self runUnsandboxed:^{
+			exec_cmd(JBROOT_PATH("/usr/bin/uicache"), "-a", NULL);
+		}];
+	}];
 }
 
 - (void)unregisterJailbreakApps
 {
-    [self runAsRoot:^{
-        [self runUnsandboxed:^{
-            NSArray *jailbreakApps = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:JBROOT_PATH(@"/Applications") error:nil];
-            if (jailbreakApps.count) {
-                for (NSString *jailbreakApp in jailbreakApps) {
-                    NSString *jailbreakAppPath = [JBROOT_PATH(@"/Applications") stringByAppendingPathComponent:jailbreakApp];
-                    exec_cmd(JBROOT_PATH("/usr/bin/uicache"), "-u", jailbreakAppPath.fileSystemRepresentation, NULL);
-                }
-            }
-        }];
-    }];
+	[self runAsRoot:^{
+		[self runUnsandboxed:^{
+			NSArray *jailbreakApps = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:JBROOT_PATH(@"/Applications") error:nil];
+			if (jailbreakApps.count) {
+				for (NSString *jailbreakApp in jailbreakApps) {
+					NSString *jailbreakAppPath = [JBROOT_PATH(@"/Applications") stringByAppendingPathComponent:jailbreakApp];
+					exec_cmd(JBROOT_PATH("/usr/bin/uicache"), "-u", jailbreakAppPath.fileSystemRepresentation, NULL);
+				}
+			}
+		}];
+	}];
 }
 
 - (void)reboot
 {
-    [self runAsRoot:^{
-        [self runUnsandboxed:^{
-            reboot3(0x8000000000000000, 0);
-        }];
-    }];
+	[self runAsRoot:^{
+		[self runUnsandboxed:^{
+			reboot3(0x8000000000000000, 0);
+		}];
+	}];
 }
 
 - (void)changeMobilePassword:(NSString *)newPassword
 {
-    [self runAsRoot:^{
-        [self runUnsandboxed:^{
-            NSString *dashCommand = [NSString stringWithFormat:@"printf \"%%s\\n\" \"%@\" | %@ usermod 501 -h 0", newPassword, JBROOT_PATH(@"/usr/sbin/pw")];
-            exec_cmd(JBROOT_PATH("/usr/bin/dash"), "-c", dashCommand.UTF8String, NULL);
-        }];
-    }];
+	[self runAsRoot:^{
+		[self runUnsandboxed:^{
+			NSString *dashCommand = [NSString stringWithFormat:@"printf \"%%s\\n\" \"%@\" | %@ usermod 501 -h 0", newPassword, JBROOT_PATH(@"/usr/sbin/pw")];
+			exec_cmd(JBROOT_PATH("/usr/bin/dash"), "-c", dashCommand.UTF8String, NULL);
+		}];
+	}];
 }
 
 - (NSError*)updateEnvironment
 {
-    NSString *newBasebinTarPath = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"basebin.tar"];
-    int result = jbclient_platform_stage_jailbreak_update(newBasebinTarPath.fileSystemRepresentation);
-    if (result == 0) {
-        [self rebootUserspace];
-        return nil;
-    }
-    return [NSError errorWithDomain:@"Dopamine" code:result userInfo:nil];
+	NSString *newBasebinTarPath = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"basebin.tar"];
+	int result = jbclient_platform_stage_jailbreak_update(newBasebinTarPath.fileSystemRepresentation);
+	if (result == 0) {
+		[self rebootUserspace];
+		return nil;
+	}
+	return [NSError errorWithDomain:@"Dopamine" code:result userInfo:nil];
 }
 
 - (void)updateJailbreakFromTIPA:(NSString *)tipaPath
 {
-    [self runAsRoot:^{
-        [self runUnsandboxed:^{
-            pid_t pid = 0;
-            if (exec_cmd_suspended(&pid, JBROOT_PATH("/basebin/jbctl"), "update", "tipa", tipaPath.fileSystemRepresentation, NULL) == 0) {
-                kill(pid, SIGCONT);
-            }
-        }];
-    }];
+	[self runAsRoot:^{
+		[self runUnsandboxed:^{
+			pid_t pid = 0;
+			if (exec_cmd_suspended(&pid, JBROOT_PATH("/basebin/jbctl"), "update", "tipa", tipaPath.fileSystemRepresentation, NULL) == 0) {
+				kill(pid, SIGCONT);
+			}
+		}];
+	}];
 }
 
 - (BOOL)isTweakInjectionEnabled
 {
-    return ![[NSFileManager defaultManager] fileExistsAtPath:JBROOT_PATH(@"/basebin/.safe_mode")];
+	return ![[NSFileManager defaultManager] fileExistsAtPath:JBROOT_PATH(@"/basebin/.safe_mode")];
 }
 
 - (void)setTweakInjectionEnabled:(BOOL)enabled
 {
-    NSString *safeModePath = JBROOT_PATH(@"/basebin/.safe_mode");
-    if ([self isJailbroken]) {
-        [self runAsRoot:^{
-            [self runUnsandboxed:^{
-                if (enabled) {
-                    [[NSFileManager defaultManager] removeItemAtPath:safeModePath error:nil];
-                }
-                else {
-                    [[NSData data] writeToFile:safeModePath atomically:YES];
-                }
-            }];
-        }];
-    }
+	NSString *safeModePath = JBROOT_PATH(@"/basebin/.safe_mode");
+	if ([self isJailbroken]) {
+		[self runAsRoot:^{
+			[self runUnsandboxed:^{
+				if (enabled) {
+					[[NSFileManager defaultManager] removeItemAtPath:safeModePath error:nil];
+				}
+				else {
+					[[NSData data] writeToFile:safeModePath atomically:YES];
+				}
+			}];
+		}];
+	}
 }
 
 - (BOOL)isIDownloadEnabled
 {
-    __block BOOL isEnabled = NO;
-    [self runAsRoot:^{
-        [self runUnsandboxed:^{
-            NSDictionary *disabledDict = [NSDictionary dictionaryWithContentsOfFile:@"/var/db/com.apple.xpc.launchd/disabled.plist"];
-            NSNumber *idownloaddDisabledNum = disabledDict[@"com.opa334.Dopamine.idownloadd"];
-            if (idownloaddDisabledNum) {
-                isEnabled = ![idownloaddDisabledNum boolValue];
-            }
-            else {
-                isEnabled = NO;
-            }
-        }];
-    }];
-    return isEnabled;
+	__block BOOL isEnabled = NO;
+	[self runAsRoot:^{
+		[self runUnsandboxed:^{
+			NSDictionary *disabledDict = [NSDictionary dictionaryWithContentsOfFile:@"/var/db/com.apple.xpc.launchd/disabled.plist"];
+			NSNumber *idownloaddDisabledNum = disabledDict[@"com.opa334.Dopamine.idownloadd"];
+			if (idownloaddDisabledNum) {
+				isEnabled = ![idownloaddDisabledNum boolValue];
+			}
+			else {
+				isEnabled = NO;
+			}
+		}];
+	}];
+	return isEnabled;
 }
 
 - (void)setIDownloadEnabled:(BOOL)enabled needsUnsandbox:(BOOL)needsUnsandbox
 {
-    void (^updateBlock)(void) = ^{
-        if (enabled) {
-            exec_cmd_trusted(JBROOT_PATH("/usr/bin/launchctl"), "enable", "system/com.opa334.Dopamine.idownloadd", NULL);
-        }
-        else {
-            exec_cmd_trusted(JBROOT_PATH("/usr/bin/launchctl"), "disable", "system/com.opa334.Dopamine.idownloadd", NULL);
-        }
-    };
+	void (^updateBlock)(void) = ^{
+		if (enabled) {
+			exec_cmd_trusted(JBROOT_PATH("/usr/bin/launchctl"), "enable", "system/com.opa334.Dopamine.idownloadd", NULL);
+		}
+		else {
+			exec_cmd_trusted(JBROOT_PATH("/usr/bin/launchctl"), "disable", "system/com.opa334.Dopamine.idownloadd", NULL);
+		}
+	};
 
-    if (needsUnsandbox) {
-        [self runAsRoot:^{
-            [self runUnsandboxed:updateBlock];
-        }];
-    }
-    else {
-        updateBlock();
-    }
+	if (needsUnsandbox) {
+		[self runAsRoot:^{
+			[self runUnsandboxed:updateBlock];
+		}];
+	}
+	else {
+		updateBlock();
+	}
 }
 
 - (void)setIDownloadLoaded:(BOOL)loaded needsUnsandbox:(BOOL)needsUnsandbox
 {
-    if (loaded) {
-        [self setIDownloadEnabled:loaded needsUnsandbox:needsUnsandbox];
-    }
+	if (loaded) {
+		[self setIDownloadEnabled:loaded needsUnsandbox:needsUnsandbox];
+	}
 
-    void (^updateBlock)(void) = ^{
-        if (loaded) {
-            exec_cmd(JBROOT_PATH("/usr/bin/launchctl"), "load", JBROOT_PATH("/basebin/LaunchDaemons/com.opa334.Dopamine.idownloadd.plist"), NULL);
-        }
-        else {
-            exec_cmd(JBROOT_PATH("/usr/bin/launchctl"), "unload", JBROOT_PATH("/basebin/LaunchDaemons/com.opa334.Dopamine.idownloadd.plist"), NULL);
-        }
-    };
+	void (^updateBlock)(void) = ^{
+		if (loaded) {
+			exec_cmd(JBROOT_PATH("/usr/bin/launchctl"), "load", JBROOT_PATH("/basebin/LaunchDaemons/com.opa334.Dopamine.idownloadd.plist"), NULL);
+		}
+		else {
+			exec_cmd(JBROOT_PATH("/usr/bin/launchctl"), "unload", JBROOT_PATH("/basebin/LaunchDaemons/com.opa334.Dopamine.idownloadd.plist"), NULL);
+		}
+	};
 
-    if (needsUnsandbox) {
-        [self runAsRoot:^{
-            [self runUnsandboxed:updateBlock];
-        }];
-    }
-    else {
-        updateBlock();
-    }
+	if (needsUnsandbox) {
+		[self runAsRoot:^{
+			[self runUnsandboxed:updateBlock];
+		}];
+	}
+	else {
+		updateBlock();
+	}
 
-    if (!loaded) {
-        [self setIDownloadEnabled:loaded needsUnsandbox:needsUnsandbox];
-    }
+	if (!loaded) {
+		[self setIDownloadEnabled:loaded needsUnsandbox:needsUnsandbox];
+	}
 }
 
 - (NSString *)accessibleKernelPath
 {
-    if ([self isInstalledThroughTrollStore]) {
-        NSString *kernelcachePath = [[self activePrebootPath] stringByAppendingPathComponent:@"System/Library/Caches/com.apple.kernelcaches/kernelcache"];
-        if ([[NSFileManager defaultManager] fileExistsAtPath:kernelcachePath]) {
-            return kernelcachePath;
-        }
-        return @"/System/Library/Caches/com.apple.kernelcaches/kernelcache";
-    }
-    else {
-        NSString *kernelInApp = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"kernelcache"];
-        if ([[NSFileManager defaultManager] fileExistsAtPath:kernelInApp]) {
-            return kernelInApp;
-        }
+	if ([self isInstalledThroughTrollStore]) {
+		NSString *kernelcachePath = [[self activePrebootPath] stringByAppendingPathComponent:@"System/Library/Caches/com.apple.kernelcaches/kernelcache"];
+		if ([[NSFileManager defaultManager] fileExistsAtPath:kernelcachePath]) {
+			return kernelcachePath;
+		}
+		return @"/System/Library/Caches/com.apple.kernelcaches/kernelcache";
+	}
+	else {
+		NSString *kernelInApp = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"kernelcache"];
+		if ([[NSFileManager defaultManager] fileExistsAtPath:kernelInApp]) {
+			return kernelInApp;
+		}
 
-        [[DOUIManager sharedInstance] sendLog:@"Downloading Kernel" debug:NO];
-        NSString *kernelcachePath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/kernelcache"];
-        if (![[NSFileManager defaultManager] fileExistsAtPath:kernelcachePath]) {
-            if (grab_kernelcache(kernelcachePath) == false) return nil;
-        }
-        return kernelcachePath;
-    }
+		[[DOUIManager sharedInstance] sendLog:@"Downloading Kernel" debug:NO];
+		NSString *kernelcachePath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/kernelcache"];
+		if (![[NSFileManager defaultManager] fileExistsAtPath:kernelcachePath]) {
+			if (grab_kernelcache(kernelcachePath) == false) return nil;
+		}
+		return kernelcachePath;
+	}
 }
 
 - (BOOL)isPACBypassRequired
 {
-    if (![self isArm64e]) return NO;
+	if (![self isArm64e]) return NO;
 
-    if (@available(iOS 15.2, *)) {
-        return NO;
-    }
-    return YES;
+	if (@available(iOS 15.2, *)) {
+		return NO;
+	}
+	return YES;
 }
 
 - (BOOL)isPPLBypassRequired
 {
-    return [self isArm64e];
+	return [self isArm64e];
 }
 
 - (BOOL)isSupported
-{    
-    DOExploitManager *exploitManager = [DOExploitManager sharedManager];
-    if ([exploitManager availableExploitsForType:EXPLOIT_TYPE_KERNEL].count) {
-        if (![self isPACBypassRequired] || [exploitManager availableExploitsForType:EXPLOIT_TYPE_PAC].count) {
-            if (![self isPPLBypassRequired] || [exploitManager availableExploitsForType:EXPLOIT_TYPE_PPL].count) {
-                return true;
-            }
-        }
-    }
+{	
+	DOExploitManager *exploitManager = [DOExploitManager sharedManager];
+	if ([exploitManager availableExploitsForType:EXPLOIT_TYPE_KERNEL].count) {
+		if (![self isPACBypassRequired] || [exploitManager availableExploitsForType:EXPLOIT_TYPE_PAC].count) {
+			if (![self isPPLBypassRequired] || [exploitManager availableExploitsForType:EXPLOIT_TYPE_PPL].count) {
+				return true;
+			}
+		}
+	}
 
-    return false;
+	return false;
 }
 
 - (NSError *)prepareBootstrap
 {
-    __block NSError *errOut;
-    dispatch_semaphore_t sema = dispatch_semaphore_create(0);
-    [_bootstrapper prepareBootstrapWithCompletion:^(NSError *error) {
-        errOut = error;
-        dispatch_semaphore_signal(sema);
-    }];
-    dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
-    return errOut;
+	__block NSError *errOut;
+	dispatch_semaphore_t sema = dispatch_semaphore_create(0);
+	[_bootstrapper prepareBootstrapWithCompletion:^(NSError *error) {
+		errOut = error;
+		dispatch_semaphore_signal(sema);
+	}];
+	dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
+	return errOut;
 }
 
 - (NSError *)finalizeBootstrap
 {
-    return [_bootstrapper finalizeBootstrap];
+	return [_bootstrapper finalizeBootstrap];
 }
 
 - (NSError *)deleteBootstrap
 {
-    if (![self isJailbroken] && getuid() != 0) {
-        int r = [self runTrollStoreAction:@"delete-bootstrap"];
-        if (r != 0) {
+	if (![self isJailbroken] && getuid() != 0) {
+		int r = [self runTrollStoreAction:@"delete-bootstrap"];
+		if (r != 0) {
 
-        }
-        return nil;
-    }
-    else if ([self isJailbroken]) {
-        __block NSError *error;
-        [self runAsRoot:^{
-            [self runUnsandboxed:^{
-                error = [self->_bootstrapper deleteBootstrap];
-            }];
-        }];
-        return error;
-    }
-    else {
+		}
+		return nil;
+	}
+	else if ([self isJailbroken]) {
+		__block NSError *error;
+		[self runAsRoot:^{
+			[self runUnsandboxed:^{
+				error = [self->_bootstrapper deleteBootstrap];
+			}];
+		}];
+		return error;
+	}
+	else {
 
-        return [_bootstrapper deleteBootstrap];
-    }
+		return [_bootstrapper deleteBootstrap];
+	}
 }
 
 - (NSError *)reinstallPackageManagers
 {
-    __block NSError *error;
-    [self runAsRoot:^{
-        [self runUnsandboxed:^{
-            error = [self->_bootstrapper installPackageManagers];
-        }];
-    }];
-    return error;
+	__block NSError *error;
+	[self runAsRoot:^{
+		[self runUnsandboxed:^{
+			error = [self->_bootstrapper installPackageManagers];
+		}];
+	}];
+	return error;
 }
 
 @end
