@@ -49,7 +49,6 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 	JBErrorCodeFailedLaunchdInjection		= -11,
 	JBErrorCodeFailedInitProtection		= -12,
 	JBErrorCodeFailedInitFakeLib			 = -13,
-	JBErrorCodeFailedDuplicateApps			= -14,
 };
 
 @implementation DOJailbreaker
@@ -334,71 +333,6 @@ void *boomerang_server(struct boomerang_info *info)
 
 	dispatch_semaphore_wait(sem,DISPATCH_TIME_FOREVER);
 	mach_port_deallocate(mach_task_self(),serverPort);
-	return nil;
-}
-
-- (NSError *)ensureNoDuplicateApps
-{
-	NSMutableSet *dopamineInstalledAppIds = [NSMutableSet new];
-	NSMutableSet *userInstalledAppIds = [NSMutableSet new];
-
-	NSString *dopamineAppsPath = JBROOT_PATH(@"/Applications");
-	NSString *userAppsPath = @"/var/containers/Bundle/Application";
-
-	for (NSString *dopamineAppName in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dopamineAppsPath error:nil]) {
-		NSString *infoPlistPath = [[dopamineAppsPath stringByAppendingPathComponent:dopamineAppName] stringByAppendingPathComponent:@"Info.plist"];
-		NSDictionary *infoDictionary = [NSDictionary dictionaryWithContentsOfFile:infoPlistPath];
-		NSString *appId = infoDictionary[@"CFBundleIdentifier"];
-		if (appId) {
-			if (![dopamineInstalledAppIds containsObject:appId]) {
-				[dopamineInstalledAppIds addObject:appId];
-			}
-			else {
-				return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedDuplicateApps userInfo:@{ NSLocalizedDescriptionKey : [NSString stringWithFormat:DOLocalizedString(@"Duplicate_Apps_Error_Dopamine_App"), appId, dopamineAppsPath]}];
-			}
-		}
-	}
-
-	for (NSString *appUUID in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:userAppsPath error:nil]) {
-		NSString *UUIDPath = [userAppsPath stringByAppendingPathComponent:appUUID];
-		for (NSString *appCandidate in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:UUIDPath error:nil]) {
-			if ([appCandidate.pathExtension isEqualToString:@"app"]) {
-				NSString *appPath = [UUIDPath stringByAppendingPathComponent:appCandidate];
-				NSString *infoPlistPath = [appPath stringByAppendingPathComponent:@"Info.plist"];
-				NSDictionary *infoDictionary = [NSDictionary dictionaryWithContentsOfFile:infoPlistPath];
-				NSString *appId = infoDictionary[@"CFBundleIdentifier"];
-				if (appId) {
-					[userInstalledAppIds addObject:appId];
-				}
-			}
-		}
-	}
-
-	NSMutableSet *duplicateApps = dopamineInstalledAppIds.mutableCopy;
-	[duplicateApps intersectSet:userInstalledAppIds];
-	if (duplicateApps.count) {
-		NSMutableString *duplicateAppsString = [NSMutableString new];
-		[duplicateAppsString appendString:@"["];
-		BOOL isFirst = YES;
-		for (NSString *duplicateApp in duplicateApps) {
-			if (isFirst) isFirst = NO;
-			else [duplicateAppsString appendString:@", "];
-			[duplicateAppsString appendString:duplicateApp];
-		}
-		[duplicateAppsString appendString:@"]"];
-		return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedDuplicateApps userInfo:@{ NSLocalizedDescriptionKey : [NSString stringWithFormat:DOLocalizedString(@"Duplicate_Apps_Error_User_App"), duplicateAppsString, dopamineAppsPath]}];
-	}
-
-	for (NSString *dopamineAppId in dopamineInstalledAppIds) {
-		LSApplicationProxy *appProxy = [LSApplicationProxy applicationProxyForIdentifier:dopamineAppId];
-		if (appProxy.installed) {
-			NSString *appProxyPath = [[appProxy.bundleURL.path stringByResolvingSymlinksInPath] stringByStandardizingPath];
-			if (![appProxyPath hasPrefix:dopamineAppsPath]) {
-				return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedDuplicateApps userInfo:@{ NSLocalizedDescriptionKey : [NSString stringWithFormat:DOLocalizedString(@"Duplicate_Apps_Error_Icon_Cache"), dopamineAppId, dopamineAppsPath, appProxy.bundleURL.path]}];
-			}
-		}
-	}
-
 	return nil;
 }
 
