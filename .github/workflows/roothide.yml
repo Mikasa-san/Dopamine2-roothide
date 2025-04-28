@@ -23,8 +23,17 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Cache THEOS SDKs
+        uses: actions/cache@v4
+        id: cache-theos
+        with:
+          path: theos/sdks
+          key: ${{ runner.os }}-theos-sdks-16.5
+          restore-keys: |
+            ${{ runner.os }}-theos-sdks-
+
       - name: Install Procursus
-        uses: dhinakg/procursus-action@main
+        uses: beerpiss/procursus-action@v2
         with:
           packages: ldid findutils sed coreutils make
 
@@ -34,22 +43,24 @@ jobs:
           export BASEDIR="$(pwd)"
           export THEOS="${BASEDIR}/theos"
           mkdir -p "$THEOS"
-          curl -fsSL https://raw.githubusercontent.com/roothide/theos/master/bin/install-theos \
-            >> install-theos.sh
-          gsed -E "/^\s*get_theos\s*$/,+1 s/^(\s*)(get_sdks)\s*$/\1mkdir -p \${THEOS}\/sdks\n\1touch \${THEOS}\/sdks\/sdk\n\1\2/g" \
-            -i install-theos.sh
-          bash install-theos.sh
-          curl -L https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz \
-            --output "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
-          gunzip "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
-          tar -xf "$THEOS/sdks/iPhoneOS16.5.sdk.tar" -C "$THEOS/sdks"
-          rm "$THEOS/sdks/iPhoneOS16.5.sdk.tar"
-          cd "$BASEDIR"
+          if [ -d "$THEOS/sdks/iPhoneOS16.5.sdk" ]; then
+            echo "→ THEOS SDK cache hit – skipping download/extract"
+          else
+            curl -fsSL https://raw.githubusercontent.com/roothide/theos/master/bin/install-theos \
+              > install-theos.sh
+            gsed -E "/^\s*get_theos\s*$/,+1 s/^(\s*)(get_sdks)\s*$/\1mkdir -p \${THEOS}\/sdks\n\1touch \${THEOS}\/sdks\/sdk\n\1\2/g" \
+              -i install-theos.sh
+            bash install-theos.sh
+            curl -L https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz \
+              -o "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
+            tar -xOzf "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz" | tar -C "$THEOS/sdks" -xf -
+            rm "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
+          fi
 
       - name: Build and Install trustcache
         run: |
           set -x
-          git clone https://github.com/CRKatri/trustcache
+          git clone --depth 1 https://github.com/CRKatri/trustcache
           cd trustcache
           OPENSSL_PREFIX="$(brew --prefix openssl@1.1)"
           export CFLAGS="-arch arm64 -I${OPENSSL_PREFIX}/include"
