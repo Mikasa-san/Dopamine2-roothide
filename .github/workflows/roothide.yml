@@ -20,7 +20,7 @@ jobs:
       - name: Install Procursus
         uses: beerpiss/procursus-action@v2
         with:
-          packages: ldid findutils sed coreutils make
+          packages: ldid findutils sed coreutils make libarchive
 
       - name: Install THEOS
         run: |
@@ -54,10 +54,6 @@ jobs:
           echo "ctime=${T2}" >> $GITHUB_ENV
           echo "ctimestamp=${TS}" >> $GITHUB_ENV
           echo "shorthash=${SHASH}" >> $GITHUB_ENV
-
-      - name: Install libarchive
-        run: |
-          brew install libarchive
 
       - name: Build Dopamine2-roothide
         run: |
