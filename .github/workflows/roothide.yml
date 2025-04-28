@@ -44,16 +44,9 @@ jobs:
           rm $THEOS/sdks/iPhoneOS16.5.sdk.tar
           cd $BASEDIR
 
-      - name: Install Homebrew Dependencies
+      - name: Install OpenSSL & Dependencies
         run: |
-          brew install openssl@1.1 gettext libarchive make
-          # Prepend Homebrew’s bin so that its gmake (ARM64) is used
-          echo "PATH=$(brew --prefix)/bin:$PATH" >> $GITHUB_ENV
-
-      - name: Overwrite Procursus libintl with ARM64
-        run: |
-          # Ensure any Procursus tools that depend on libintl get the ARM64 version
-          sudo cp "$(brew --prefix gettext)/lib/libintl.8.dylib" /opt/procursus/lib/libintl.8.dylib
+          brew install openssl@1.1 gettext libarchive
 
       - name: Build and Install trustcache
         run: |
@@ -77,6 +70,11 @@ jobs:
           echo "ctime=${T2}" >> $GITHUB_ENV
           echo "ctimestamp=${TS}" >> $GITHUB_ENV
           echo "shorthash=${SHASH}" >> $GITHUB_ENV
+
+      - name: Overwrite Procursus libintl with ARM64
+        run: |
+          # Ensure any Procursus tools that depend on libintl get the ARM64 version
+          sudo cp "$(brew --prefix gettext)/lib/libintl.8.dylib" /opt/procursus/lib/libintl.8.dylib
 
       - name: Build Dopamine2-roothide
         run: |
