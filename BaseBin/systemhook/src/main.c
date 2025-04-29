@@ -174,50 +174,37 @@ int csops_audittoken_hook(pid_t pid, unsigned int ops, void *useraddr, size_t us
 
 bool should_enable_tweaks(void)
 {
-	if (access(JBROOT_PATH("/basebin/.safe_mode"), F_OK) == 0) {
+	if (access(JBROOT_PATH("/basebin/.safe_mode"), F_OK) == 0)
 		return false;
-	}
 
-	char *tweaksDisabledEnv = getenv("DISABLE_TWEAKS");
-	if (tweaksDisabledEnv) {
-		if (!strcmp(tweaksDisabledEnv, "1")) {
+	{
+		char *v;
+
+		v = getenv("DISABLE_TWEAKS");
+		if (v && v[0] == '1' && v[1] == '\0')
 			return false;
-		}
+
+		v = getenv("_SafeMode");
+		if (v && v[0] == '1' && v[1] == '\0')
+			return false;
+
+		v = getenv("_MSSafeMode");
+		if (v && v[0] == '1' && v[1] == '\0')
+			return false;
 	}
 
-const char *safeModeValue = getenv("_SafeMode");
-if (safeModeValue) {
-	if (!strcmp(safeModeValue, "1")) {
+	if (string_has_suffix(gExecutablePath, "/usr/libexec/xpcproxy"))
 		return false;
-	}
-}
-const char *msSafeModeValue = getenv("_MSSafeMode");
-if (msSafeModeValue) {
-	if (!strcmp(msSafeModeValue, "1")) {
+	if (string_has_suffix(gExecutablePath, "Dopamine.app/Dopamine"))
 		return false;
-	}
-}
-
-	const char *tweaksDisabledPathSuffixes[] = {
-
-		"/usr/libexec/xpcproxy",
-
-		"Dopamine.app/Dopamine",
-	};
-	for (size_t i = 0; i < sizeof(tweaksDisabledPathSuffixes) / sizeof(const char*); i++) {
-		if (string_has_suffix(gExecutablePath, tweaksDisabledPathSuffixes[i])) return false;
-	}
 
 	if (__builtin_available(iOS 16.0, *)) {
-
-		const char *iOS16TweaksDisabledPaths[] = {
-			"/usr/libexec/logd",
-			"/usr/sbin/notifyd",
-			"/usr/libexec/usermanagerd",
-		};
-		for (size_t i = 0; i < sizeof(iOS16TweaksDisabledPaths) / sizeof(const char*); i++) {
-			if (!strcmp(gExecutablePath, iOS16TweaksDisabledPaths[i])) return false;
-		}
+		if (!strcmp(gExecutablePath, "/usr/libexec/logd"))
+			return false;
+		if (!strcmp(gExecutablePath, "/usr/sbin/notifyd"))
+			return false;
+		if (!strcmp(gExecutablePath, "/usr/libexec/usermanagerd"))
+			return false;
 	}
 
 	return true;
