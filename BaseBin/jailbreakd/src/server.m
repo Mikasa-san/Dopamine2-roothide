@@ -1,143 +1,109 @@
-#include <Foundation/Foundation.h>
-#include <bsm/libbsm.h>
-#include <libproc.h>
+#import <Foundation/Foundation.h>
+#import <bsm/libbsm.h>
+#import <libproc.h>
+#import <libjailbreak/libjailbreak.h>
+#import <libjailbreak/roothider.h>
 
-#include <libjailbreak/libjailbreak.h>
-#include <libjailbreak/roothider.h>
-
-void jailbreakd_reply_message(JBD_MESSAGE_ID msgId, xpc_object_t reply)
-{
-	char* desc = NULL;
-	JBLogDebug("reply message %d with %s", msgId, (desc=xpc_copy_description(reply)));
-	if(desc) free(desc);
-	int err = xpc_pipe_routine_reply(reply);
-	if (err != 0) {
-		JBLogError("Error %d sending response", err);
-	}
+static void send_reply(JBD_MESSAGE_ID msgId, xpc_object_t reply) {
+	char *desc = xpc_copy_description(reply);
+	JBLogDebug("reply %u: %s", msgId, desc);
+	free(desc);
+	if (int err = xpc_pipe_routine_reply(reply))
+		JBLogError("reply error %d", err);
 }
 
-void jailbreakd_received_message(mach_port_t port)
-{
+void jailbreakd_received_message(mach_port_t port) {
 	@autoreleasepool {
-		xpc_object_t message = nil;
-		int err = xpc_pipe_receive(port, &message);
-		if (err != 0) {
-			JBLogError("xpc_pipe_receive error %d", err);
+		xpc_object_t msg = NULL;
+		if (int err = xpc_pipe_receive(port, &msg)) {
+			JBLogError("receive error %d", err);
 			return;
 		}
+		if (xpc_get_type(msg) != XPC_TYPE_DICTIONARY)
+			return;
 
-		xpc_object_t reply = xpc_dictionary_create_reply(message);
+		JBD_MESSAGE_ID msgId = xpc_dictionary_get_uint64(msg, "id");
+		xpc_object_t reply = xpc_dictionary_create_reply(msg);
 
-		JBD_MESSAGE_ID msgId = xpc_dictionary_get_uint64(message, "id");
-		
-		if (xpc_get_type(message) == XPC_TYPE_DICTIONARY) {
-			audit_token_t auditToken = {0};
-			xpc_dictionary_get_audit_token(message, &auditToken);
-			uid_t clientUid = audit_token_to_euid(auditToken);
-			pid_t clientPid = audit_token_to_pid(auditToken);
+		audit_token_t token;
+		xpc_dictionary_get_audit_token(msg, &token);
+		uid_t uid = audit_token_to_euid(token);
+		pid_t pid = audit_token_to_pid(token);
 
-			char* desc = NULL;
-			JBLogDebug("received message %d from %d(%s) with dictionary: %s", msgId, clientPid, proc_get_path(clientPid,NULL), (desc=xpc_copy_description(message)));
-			if(desc) free(desc);
+		char *desc = xpc_copy_description(msg);
+		JBLogDebug("msg %u from %d (%s): %s",
+		           msgId, pid, proc_get_path(pid, NULL), desc);
+		free(desc);
 
-			switch (msgId) {
-				case JBD_MSG_SPAWN_PATCH_CHILD: {
-					int64_t result = 0;
-					pid_t pid = xpc_dictionary_get_int64(message, "pid");
-					bool resume = xpc_dictionary_get_bool(message, "resume");
-					pid_t ppid = proc_get_ppid(pid);
-					if(ppid == clientPid) {
-						JBLogDebug("spawn patch: client pid=%d, child pid=%d, child's parent pid=%d, child proc=%s", clientPid, pid, ppid, proc_get_path(pid,NULL));
-
-						if(roothide_patch_proc(pid) == 0) {
-							if(resume) kill(pid, SIGCONT);
-						} else {
-							JBLogError("spawn patch failed: %d", pid);
-							result = -1;
-						}
-
-					} else {
-						JBLogError("spawn patch denied: %d", pid);
-						result = -1;
-					}
-					xpc_dictionary_set_int64(reply, "result", result);
-					break;
-				}
-
-				case JBD_MSG_SPAWN_EXEC_START: {
-					bool resume = xpc_dictionary_get_bool(message, "resume");
-					const char* execfile = xpc_dictionary_get_string(message, "execfile");
-					JBLogDebug("spawn exec start: %d %s", clientPid, execfile);
-					int64_t result = spawnExecPatchAdd(clientPid, resume);
-					xpc_dictionary_set_int64(reply, "result", result);
-					break;
-				}
-
-				case JBD_MSG_SPAWN_EXEC_CANCEL: {
-					const char* execfile = xpc_dictionary_get_string(message, "execfile");
-					JBLogDebug("spawn exec cancel: %d %s", clientPid, execfile);
-					int64_t result = spawnExecPatchDel(clientPid);
-					xpc_dictionary_set_int64(reply, "result", result);
-					break;
-				}
-
-				case JBD_MSG_EXEC_TRACE_START: {
-					//dead lock: jbd->ptrace->kernel->amfi port->launchd->spawn amfid->jdb
-					dispatch_async(dispatch_get_global_queue(0, 0), ^{
-						int64_t result = -1;
-						uint64_t traced = xpc_dictionary_get_uint64(message, "traced");
-						const char* execfile = xpc_dictionary_get_string(message, "execfile");
-						JBLogDebug("exec trace start: %d %s", clientPid, execfile);
-						result = execTraceProcess(clientPid, traced);
-						xpc_dictionary_set_int64(reply, "result", result);
-						jailbreakd_reply_message(msgId, reply);
-					});
-					reply = nil; //reply later
-					break;
-				}
-
-				case JBD_MSG_EXEC_TRACE_CANCEL: {
-					int64_t result = -1;
-					const char* execfile = xpc_dictionary_get_string(message, "execfile");
-					JBLogDebug("exec trace cancel: %d %s", clientPid, execfile);
-					result = execTraceCancel(clientPid);
-					xpc_dictionary_set_int64(reply, "result", result);
-					break;
-				}
-
-				case JBD_MSG_SYSTEMWIDE_LOG: {
-#ifdef ENABLE_LOGS
-					const char* progname = NULL;
-					const char* procpath = proc_get_path(clientPid,NULL);
-					if(procpath) {
-						progname = strrchr(procpath, '/');
-						if(progname) progname++; else progname = procpath;
-					}
-					uint64_t tid = xpc_dictionary_get_uint64(message, "tid");
-					const char* log = xpc_dictionary_get_string(message, "log");
-					JBLogFunction(JBLogGetLogFilePath("systemwide", NULL), clientPid, tid, progname ? progname : "(null)", "%s", log);
-					xpc_dictionary_set_int64(reply, "result", 0);
-#else
-					abort();
-#endif
-					break;
-				}
-
-				case JBD_MSG_TEST_CALL: {
-					int value = xpc_dictionary_get_int64(message, "value");
-					JBLogDebug("jailbreakd test call(%llu) from %d,%s", value, clientPid, proc_get_path(clientPid,NULL));	
-					xpc_dictionary_set_int64(reply, "result", value * 2);
-					
-					if(clientUid == 0) {
-						abort(); // crashreporter test
-					}
-
-					break;
-				}
+		switch (msgId) {
+		case JBD_MSG_SPAWN_PATCH_CHILD: {
+			pid_t child = xpc_dictionary_get_int64(msg, "pid");
+			bool resume = xpc_dictionary_get_bool(msg, "resume");
+			pid_t ppid = proc_get_ppid(child);
+			int64_t res = -1;
+			if (ppid == pid && roothide_patch_proc(child) == 0) {
+				if (resume) kill(child, SIGCONT);
+				res = 0;
+			} else {
+				JBLogError("spawn patch denied/failed for %d", child);
 			}
+			xpc_dictionary_set_int64(reply, "result", res);
+			break;
 		}
-		if (reply) {
-			jailbreakd_reply_message(msgId, reply);
+		case JBD_MSG_SPAWN_EXEC_START: {
+			bool resume = xpc_dictionary_get_bool(msg, "resume");
+			int64_t res = spawnExecPatchAdd(pid, resume);
+			xpc_dictionary_set_int64(reply, "result", res);
+			break;
 		}
+		case JBD_MSG_SPAWN_EXEC_CANCEL:
+			xpc_dictionary_set_int64(reply, "result",
+			                         spawnExecPatchDel(pid));
+			break;
+
+		case JBD_MSG_EXEC_TRACE_START: {
+			uint64_t traceId = xpc_dictionary_get_uint64(msg, "traced");
+			dispatch_async(dispatch_get_global_queue(0,0), ^{
+				xpc_object_t r = xpc_dictionary_create_reply(msg);
+				int64_t res = execTraceProcess(pid, traceId);
+				xpc_dictionary_set_int64(r, "result", res);
+				send_reply(msgId, r);
+			});
+			reply = NULL; // deferred
+			break;
+		}
+		case JBD_MSG_EXEC_TRACE_CANCEL:
+			xpc_dictionary_set_int64(reply, "result",
+			                         execTraceCancel(pid));
+			break;
+
+#ifdef ENABLE_LOGS
+		case JBD_MSG_SYSTEMWIDE_LOG: {
+			const char *path = proc_get_path(pid, NULL);
+			const char *prog = path && (strrchr(path, '/')+1) ? 
+			                   strrchr(path, '/')+1 : path;
+			uint64_t tid = xpc_dictionary_get_uint64(msg, "tid");
+			const char *log = xpc_dictionary_get_string(msg, "log");
+			JBLogFunction(JBLogGetLogFilePath("systemwide",NULL),
+			              pid, tid, prog ? prog : "(nil)", "%s", log);
+			xpc_dictionary_set_int64(reply, "result", 0);
+			break;
+		}
+#endif
+
+		case JBD_MSG_TEST_CALL: {
+			int64_t v = xpc_dictionary_get_int64(msg, "value");
+			JBLogDebug("test %llu from %d", v, pid);
+			xpc_dictionary_set_int64(reply, "result", v*2);
+			if (uid == 0) abort(); // crashreporter test
+			break;
+		}
+
+		default:
+			JBLogError("unknown msg %u", msgId);
+		}
+
+		if (reply)
+			send_reply(msgId, reply);
 	}
 }
