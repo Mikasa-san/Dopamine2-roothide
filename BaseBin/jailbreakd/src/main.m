@@ -7,6 +7,9 @@
 #import <libjailbreak/roothider.h>
 
 extern char **environ;
+void jailbreakd_received_message(mach_port_t port);
+int posix_spawnattr_set_registered_ports_np(posix_spawnattr_t * __restrict attr,
+                                            mach_port_t portarray[], uint32_t count);
 
 static void fatal(const char *msg, int code) {
 	perror(msg);
@@ -14,10 +17,11 @@ static void fatal(const char *msg, int code) {
 }
 
 static void setJetsam(bool on) {
-	if (memorystatus_control(MEMORYSTATUS_CMD_SET_JETSAM_HIGH_WATER_MARK,
-	                         getpid(), on ? 10 : -1, NULL, 0) < 0) {
-		fatal("memorystatus_control", code);
-	}
+	pid_t me = getpid();
+	int mark = on ? 10 : -1;
+	int rc = memorystatus_control(MEMORYSTATUS_CMD_SET_JETSAM_HIGH_WATER_MARK,
+	                              me, mark, NULL, 0);
+	if (rc < 0) fatal("memorystatus_control", rc);
 }
 
 int main(int argc, char *argv[]) {
@@ -38,21 +42,19 @@ int main(int argc, char *argv[]) {
 		}
 
 		mach_port_t boot = ports[2];
-		if (!MACH_PORT_VALID(boot)) {
-			fatal("invalid bootstrap port", 2);
-		}
+		if (!MACH_PORT_VALID(boot)) fatal("invalid bootstrap port", 2);
 
-		// unregister the bootstrap port from our task and re-register without it
+		// Unregister bootstrap from our task
 		ports[2] = MACH_PORT_NULL;
 		mach_ports_register(mach_task_self(), ports, count);
 
-		// initialize jailbreak primitives
+		// Init jailbreak primitives
 		jbclient_xpc_set_custom_port(boot);
 		if (jbclient_initialize_primitives() != 0) {
 			fatal("init primitives", 3);
 		}
 
-		// handle respawn if requested
+		// Respawn flow
 		if (getenv("RESPAWN_REQUIRED")) {
 			unsetenv("RESPAWN_REQUIRED");
 
@@ -82,16 +84,15 @@ int main(int argc, char *argv[]) {
 			return 0;
 		}
 
-		// check in with the daemon
+		// Check in with daemon
 		mach_port_t server = jbclient_jailbreakd_checkin();
-		if (!MACH_PORT_VALID(server)) {
-			fatal("checkin failed", 6);
-		}
+		if (!MACH_PORT_VALID(server)) fatal("checkin failed", 6);
 
-		// start listening for messages
-		dispatch_source_t src = dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_RECV,
-		                                              (uintptr_t)server, 0,
-		                                              dispatch_get_main_queue());
+		// Listen for messages
+		dispatch_source_t src = dispatch_source_create(
+		    DISPATCH_SOURCE_TYPE_MACH_RECV,
+		    (uintptr_t)server, 0,
+		    dispatch_get_main_queue());
 		dispatch_source_set_event_handler(src, ^{
 			jailbreakd_received_message(server);
 		});
