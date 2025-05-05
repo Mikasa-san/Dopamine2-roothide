@@ -8,17 +8,21 @@ static void send_reply(JBD_MESSAGE_ID msgId, xpc_object_t reply) {
 	char *desc = xpc_copy_description(reply);
 	JBLogDebug("reply %u: %s", msgId, desc);
 	free(desc);
-	if (int err = xpc_pipe_routine_reply(reply))
+
+	int err = xpc_pipe_routine_reply(reply);
+	if (err)
 		JBLogError("reply error %d", err);
 }
 
 void jailbreakd_received_message(mach_port_t port) {
 	@autoreleasepool {
 		xpc_object_t msg = NULL;
-		if (int err = xpc_pipe_receive(port, &msg)) {
-			JBLogError("receive error %d", err);
+		int err = xpc_pipe_receive(port, &msg);
+		if (err) {
+			JBLogError("xpc_pipe_receive error %d", err);
 			return;
 		}
+
 		if (xpc_get_type(msg) != XPC_TYPE_DICTIONARY)
 			return;
 
@@ -31,7 +35,7 @@ void jailbreakd_received_message(mach_port_t port) {
 		pid_t pid = audit_token_to_pid(token);
 
 		char *desc = xpc_copy_description(msg);
-		JBLogDebug("msg %u from %d (%s): %s",
+		JBLogDebug("received message %u from %d (%s): %s",
 		           msgId, pid, proc_get_path(pid, NULL), desc);
 		free(desc);
 
@@ -65,11 +69,11 @@ void jailbreakd_received_message(mach_port_t port) {
 			uint64_t traceId = xpc_dictionary_get_uint64(msg, "traced");
 			dispatch_async(dispatch_get_global_queue(0,0), ^{
 				xpc_object_t r = xpc_dictionary_create_reply(msg);
-				int64_t res = execTraceProcess(pid, traceId);
-				xpc_dictionary_set_int64(r, "result", res);
+				int64_t result = execTraceProcess(pid, traceId);
+				xpc_dictionary_set_int64(r, "result", result);
 				send_reply(msgId, r);
 			});
-			reply = NULL; // deferred
+			reply = NULL;  // deferred reply
 			break;
 		}
 		case JBD_MSG_EXEC_TRACE_CANCEL:
@@ -80,11 +84,11 @@ void jailbreakd_received_message(mach_port_t port) {
 #ifdef ENABLE_LOGS
 		case JBD_MSG_SYSTEMWIDE_LOG: {
 			const char *path = proc_get_path(pid, NULL);
-			const char *prog = path && (strrchr(path, '/')+1) ? 
-			                   strrchr(path, '/')+1 : path;
+			const char *prog = path && strrchr(path, '/') ?
+			                   strrchr(path, '/') + 1 : path;
 			uint64_t tid = xpc_dictionary_get_uint64(msg, "tid");
 			const char *log = xpc_dictionary_get_string(msg, "log");
-			JBLogFunction(JBLogGetLogFilePath("systemwide",NULL),
+			JBLogFunction(JBLogGetLogFilePath("systemwide", NULL),
 			              pid, tid, prog ? prog : "(nil)", "%s", log);
 			xpc_dictionary_set_int64(reply, "result", 0);
 			break;
@@ -94,8 +98,8 @@ void jailbreakd_received_message(mach_port_t port) {
 		case JBD_MSG_TEST_CALL: {
 			int64_t v = xpc_dictionary_get_int64(msg, "value");
 			JBLogDebug("test %llu from %d", v, pid);
-			xpc_dictionary_set_int64(reply, "result", v*2);
-			if (uid == 0) abort(); // crashreporter test
+			xpc_dictionary_set_int64(reply, "result", v * 2);
+			if (uid == 0) abort();  // crashreporter test
 			break;
 		}
 
