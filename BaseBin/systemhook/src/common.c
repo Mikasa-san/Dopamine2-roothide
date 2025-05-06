@@ -46,6 +46,13 @@ static const char *processBlacklist[] = {
 };
 
 kSpawnConfig spawn_config_for_executable(const char *path, char *const argv[restrict]) {
+	if (!strcmp(path, "/usr/libexec/xpcproxy") && argv && argv[0] && argv[1] &&
+		string_has_prefix(argv[1], "com.apple.WebKit.WebContent")) {
+		// Skip injection for WebKit WebContent processes on iOS 16+
+		if (__builtin_available(iOS 16.0, *)) {
+			return 0;
+		}
+	}
 	for (size_t i = 0; i < sizeof(processBlacklist)/sizeof(*processBlacklist); i++) {
 		if (strcmp(processBlacklist[i], path) == 0)
 			return 0;
