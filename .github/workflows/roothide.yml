@@ -46,32 +46,27 @@ jobs:
 
       - name: Build and Install trustcache
         run: |
-          set -euxo pipefail
+          set -x
           git clone https://github.com/CRKatri/trustcache
           cd trustcache
           export CFLAGS="$CFLAGS -I$(brew --prefix openssl)/include -arch arm64"
           export LDFLAGS="$LDFLAGS -L$(brew --prefix openssl)/lib -arch arm64"
-
-          OPENSSL_PREFIX="$(brew --prefix openssl@3)"
-
-          export CPPFLAGS="-I${OPENSSL_PREFIX}/include"
-          export CFLAGS="-I${OPENSSL_PREFIX}/include"
-          export LDFLAGS="-L${OPENSSL_PREFIX}/lib"
-          export LIBRARY_PATH="${OPENSSL_PREFIX}/lib:${LIBRARY_PATH:-}"
-          export CPATH="${OPENSSL_PREFIX}/include:${CPATH:-}"
-
-          gmake -j"$(sysctl -n hw.physicalcpu)" OPENSSL=1
-          install -m 755 trustcache /opt/procursus/bin/trustcache
+          gmake -j$(sysctl -n hw.physicalcpu) OPENSSL=1
+          sudo cp trustcache /opt/procursus/bin/
 
       - name: Set Environment Variables
         run: |
-          set -euxo pipefail
+          set -x
           T2=$(TZ=UTC-2 date +'%Y%m%d_%H%M%S')
           TS=$(date -j -f "%Y%m%d_%H%M%S" "${T2}" +%s)
           SHASH=$(git rev-parse --short HEAD)
-          echo "ctime=${T2}" >> "$GITHUB_ENV"
-          echo "ctimestamp=${TS}" >> "$GITHUB_ENV"
-          echo "shorthash=${SHASH}" >> "$GITHUB_ENV"
+          echo "ctime=${T2}" >> $GITHUB_ENV
+          echo "ctimestamp=${TS}" >> $GITHUB_ENV
+          echo "shorthash=${SHASH}" >> $GITHUB_ENV
+
+      - name: Install libarchive
+        run: |
+          brew install libarchive
 
       - name: Build Dopamine2-roothide
         run: |
